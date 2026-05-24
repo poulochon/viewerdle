@@ -4,7 +4,6 @@
 
   // Notre base de données temporaire
   const fakeViewers = [
-    { pseudo: "Flogi", caracteristiques: { role: "Modérateur", anciennete: "2 ans" } },
     { pseudo: "Zera", caracteristiques: { role: "VIP", anciennete: "1 an" } },
     { pseudo: "Kameto", caracteristiques: { role: "Viewer", anciennete: "3 mois" } },
     { pseudo: "Antoine", caracteristiques: { role: "Viewer", anciennete: "5 ans" } }
