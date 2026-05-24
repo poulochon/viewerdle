@@ -2,140 +2,270 @@
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
 
-  let user = $state<any>(null);
-  let mode = $state<'login' | 'register'>('login');
-  let isLoading = $state(false);
-  let message = $state({ text: '', type: '' });
+  // --- ÉTATS GLOBAUX ---
+  let isLoading = $state(true);
+  let isLoggedIn = $state(false);
 
-  // On ne garde que le pseudo et le mot de passe !
+  // --- ÉTATS : AUTHENTIFICATION ---
+  let authMode = $state<'login' | 'register'>('login');
+  let authPseudo = $state('');
+  let authPassword = $state('');
+  let authMessage = $state({ text: '', type: '' });
+  let isAuthLoading = $state(false);
+
+  // --- ÉTATS : PROFIL ---
+  let isSaving = $state(false);
+  let profileMessage = $state({ text: '', type: '' });
+  let userId = $state('');
   let pseudo = $state('');
-  let password = $state('');
+  let userCaracs = $state<Record<string, any>>({});
+  let criteres = $state<any[]>([]);
 
-  // L'astuce : on transforme le pseudo en un faux e-mail que Supabase va accepter
- function getFakeEmail(p: string) {
-     // 1. Enlève tout ce qui n'est pas une lettre ou un chiffre
-     const cleanPseudo = p.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-     // 2. Ajoute ton suffixe sécurisé avant l'arobase
-     return `${cleanPseudo}_viewerdl_test@gmail.com`;
-   }
-
+  // --- INITIALISATION ---
   onMount(async () => {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
-
-    supabase.auth.onAuthStateChange((_, session) => {
-      user = session?.user ?? null;
+    // Écoute des changements de connexion (se déclenche aussi au chargement)
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        isLoggedIn = true;
+        userId = session.user.id;
+        await fetchProfileData();
+      } else {
+        isLoggedIn = false;
+        isLoading = false;
+      }
     });
   });
 
-  async function handleSubmit(e: Event) {
-      e.preventDefault();
-      isLoading = true;
-      message = { text: '', type: '' };
+  // --- LOGIQUE : AUTHENTIFICATION ---
+  function getFakeEmail(p: string) {
+    const cleanPseudo = p.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `${cleanPseudo}_viewerdl_test@gmail.com`;
+  }
 
-      const email = getFakeEmail(pseudo);
+  async function handleAuth(e: Event) {
+    e.preventDefault();
+    isAuthLoading = true;
+    authMessage = { text: '', type: '' };
 
-      if (mode === 'register') {
-        // 1. On passe le pseudo dans les métadonnées (options.data) pour le trigger !
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              pseudo_reel: pseudo
-            }
-          }
-        });
-
-        if (authError) {
-          message = { text: "Erreur : " + authError.message, type: 'error' };
-        } else {
-          // 2. On a PLUS BESOIN de faire un insert manuellement !
-          // Le Trigger SQL a déjà créé la ligne dans profil_viewer.
-          message = { text: "Inscription réussie ! Connexion en cours...", type: 'success' };
-
-          // Optionnel : on connecte l'utilisateur direct après son inscription
-          await supabase.auth.signInWithPassword({ email, password });
-          pseudo = '';
-          password = '';
-        }
-      } else {
-        // Connexion classique
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) message = { text: "Pseudo ou mot de passe incorrect.", type: 'error' };
-      }
-
-      isLoading = false;
+    if (!authPseudo || !authPassword) {
+      authMessage = { text: "Veuillez remplir tous les champs.", type: 'error' };
+      isAuthLoading = false;
+      return;
     }
 
-  async function handleLogout() {
+    const email = getFakeEmail(authPseudo);
+
+    if (authMode === 'register') {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password: authPassword,
+        options: {
+          data: { pseudo_reel: authPseudo } // Important pour ton Trigger SQL !
+        }
+      });
+      if (error) authMessage = { text: "Erreur d'inscription : " + error.message, type: 'error' };
+      // Si succès, onAuthStateChange va s'en rendre compte et basculer la vue
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: authPassword
+      });
+      if (error) authMessage = { text: "Identifiants incorrects.", type: 'error' };
+    }
+
+    isAuthLoading = false;
+  }
+
+  // --- LOGIQUE : PROFIL ---
+  async function fetchProfileData() {
+    isLoading = true;
+
+    const { data: profileData } = await supabase
+      .from('profil_viewer')
+      .select('pseudo, caracteristiques')
+      .eq('id', userId)
+      .single();
+
+    if (profileData) {
+      pseudo = profileData.pseudo;
+      userCaracs = profileData.caracteristiques || {};
+    }
+
+    const { data: critData } = await supabase
+      .from('config_caracteristiques')
+      .select('*')
+      .eq('actif', true)
+      .order('ordre', { ascending: true });
+
+    if (critData) {
+      criteres = critData;
+      criteres.forEach(c => {
+        if (userCaracs[c.cle] === undefined) {
+          if (c.type_donnee === 'boolean') userCaracs[c.cle] = false;
+          else userCaracs[c.cle] = '';
+        }
+      });
+    }
+
+    isLoading = false;
+  }
+
+  async function saveProfile() {
+    isSaving = true;
+    profileMessage = { text: '', type: '' };
+
+    const { error } = await supabase
+      .from('profil_viewer')
+      .update({ caracteristiques: userCaracs })
+      .eq('id', userId);
+
+    if (error) {
+      profileMessage = { text: "Erreur de synchronisation : " + error.message, type: 'error' };
+    } else {
+      profileMessage = { text: "Profil synchronisé avec la matrice !", type: 'success' };
+    }
+    isSaving = false;
+  }
+
+  async function logout() {
     await supabase.auth.signOut();
-    pseudo = '';
-    password = '';
   }
 </script>
 
-<div class="w-full max-w-md mx-auto flex flex-col items-center animate-fade-in z-20">
+<div class="w-full max-w-2xl mx-auto flex flex-col items-center animate-fade-in z-20 pb-20">
 
-  {#if user}
-    <!-- VUE : CONNECTÉ -->
-    <div class="w-full p-8 bg-slate-900/80 backdrop-blur-xl border border-teal-500/30 rounded-3xl shadow-[0_0_30px_rgba(45,212,191,0.15)] text-center">
-      <h2 class="text-3xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-300 mb-6">
-        Transmission établie
-      </h2>
-      <!-- On affiche le pseudo proprement en retirant le "@viewerdle.local" -->
-      <p class="text-indigo-200/70 mb-8">Viewer identifié : <br/><span class="text-teal-300 font-bold tracking-wider text-2xl">{user.email.replace('_viewerdl_test@gmail.com', '')}</span></p>
+  {#if isLoading}
+    <div class="text-teal-300 animate-pulse uppercase tracking-widest text-sm font-bold mt-20">
+      Connexion à la matrice...
+    </div>
+  {:else if !isLoggedIn}
+    <div class="w-full max-w-md mt-10 bg-slate-900/80 backdrop-blur-xl border border-indigo-500/20 rounded-3xl p-8 shadow-[0_0_40px_rgba(99,102,241,0.1)]">
 
+      <div class="text-center mb-8">
+        <h1 class="text-3xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2">
+          {authMode === 'login' ? 'Identification' : 'Enregistrement'}
+        </h1>
+        <p class="text-indigo-200/50 text-xs tracking-widest uppercase">Accès au réseau ViewerDle</p>
+      </div>
+
+      {#if authMessage.text}
+        <div class="mb-6 p-4 rounded-xl text-xs font-bold text-center border backdrop-blur-sm bg-slate-950/50 {authMessage.type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-teal-500/50 text-teal-300'}">
+          {authMessage.text}
+        </div>
+      {/if}
+
+      <form onsubmit={handleAuth} class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] font-bold uppercase tracking-widest text-indigo-300/70 pl-1">Pseudo Twitch</label>
+          <input
+            type="text"
+            bind:value={authPseudo}
+            placeholder="Ton pseudo..."
+            class="bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all"
+          />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] font-bold uppercase tracking-widest text-indigo-300/70 pl-1">Mot de passe (Jeu)</label>
+          <input
+            type="password"
+            bind:value={authPassword}
+            placeholder="••••••••"
+            class="bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={isAuthLoading}
+          class="mt-4 py-4 rounded-xl font-bold uppercase tracking-widest bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 hover:bg-indigo-400/30 hover:border-indigo-300 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all cursor-pointer disabled:opacity-50"
+        >
+          {isAuthLoading ? 'Chargement...' : (authMode === 'login' ? 'Connexion' : 'Créer mon agent')}
+        </button>
+      </form>
+
+      <div class="mt-6 text-center border-t border-indigo-500/20 pt-6">
+        <button
+          type="button"
+          onclick={() => { authMode = authMode === 'login' ? 'register' : 'login'; authMessage = {text: '', type: ''}; }}
+          class="text-xs text-indigo-300/50 hover:text-teal-300 uppercase tracking-widest transition-colors"
+        >
+          {authMode === 'login' ? "Pas encore d'agent ? Créer un compte" : "Déjà enregistré ? S'identifier"}
+        </button>
+      </div>
+    </div>
+
+  {:else}
+    <div class="w-full flex items-end justify-between mb-8 border-b border-indigo-500/30 pb-4">
+      <div>
+        <h2 class="text-sm font-bold text-indigo-300/60 tracking-widest uppercase mb-1">Dossier Agent</h2>
+        <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400">
+          {pseudo}
+        </h1>
+      </div>
       <button
-        onclick={handleLogout}
-        class="w-full py-4 rounded-xl font-bold uppercase tracking-widest text-rose-200 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-400/50 hover:shadow-[0_0_15px_rgba(244,63,94,0.3)] transition-all"
+        onclick={logout}
+        class="text-xs font-bold uppercase tracking-widest text-rose-400/60 hover:text-rose-400 border border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/10 px-4 py-2 rounded-xl transition-all cursor-pointer"
       >
         Déconnexion
       </button>
     </div>
 
-  {:else}
-    <!-- VUE : FORMULAIRE -->
-    <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-indigo-500/30 rounded-3xl shadow-[0_0_40px_rgba(99,102,241,0.1)] overflow-hidden">
-
-      <div class="flex border-b border-indigo-500/20">
-        <button onclick={() => mode = 'login'} class={`flex-1 py-5 text-sm font-bold uppercase tracking-wider transition-all ${mode === 'login' ? 'text-teal-300 bg-indigo-500/10 border-b-2 border-teal-400 shadow-[inset_0_-10px_20px_-10px_rgba(45,212,191,0.3)]' : 'text-indigo-300/50 hover:text-indigo-300 hover:bg-indigo-500/5'}`}>
-          Connexion
-        </button>
-        <button onclick={() => mode = 'register'} class={`flex-1 py-5 text-sm font-bold uppercase tracking-wider transition-all ${mode === 'register' ? 'text-fuchsia-300 bg-indigo-500/10 border-b-2 border-fuchsia-400 shadow-[inset_0_-10px_20px_-10px_rgba(217,70,239,0.3)]' : 'text-indigo-300/50 hover:text-indigo-300 hover:bg-indigo-500/5'}`}>
-          Inscription
-        </button>
+    {#if profileMessage.text}
+      <div class="w-full p-4 mb-6 rounded-xl text-sm font-bold tracking-wide border backdrop-blur-sm bg-slate-950/50 text-center {profileMessage.type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-teal-500/50 text-teal-300 shadow-[0_0_15px_rgba(45,212,191,0.2)]'}">
+        {profileMessage.text}
       </div>
+    {/if}
 
-      <form onsubmit={handleSubmit} class="p-8 flex flex-col gap-5 relative group">
-        <div class="absolute inset-0 bg-gradient-to-b from-transparent to-indigo-500/5 pointer-events-none"></div>
+    <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-teal-500/20 rounded-3xl shadow-[0_0_40px_rgba(45,212,191,0.05)] overflow-hidden p-6 md:p-10">
 
-        {#if message.text}
-          <div class={`p-4 rounded-xl text-sm font-medium border backdrop-blur-sm ${message.type === 'error' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' : 'bg-teal-500/10 border-teal-500/30 text-teal-300'}`}>
-            {message.text}
-          </div>
-        {/if}
+      <p class="text-xs text-indigo-200/50 uppercase tracking-widest font-semibold mb-8 text-center">
+        Veuillez renseigner vos caractéristiques. Ces données serviront pour le jeu.
+      </p>
 
-        <!-- Champ Pseudo (utilisé pour l'inscription ET la connexion) -->
-        <div>
-          <label class="block text-xs font-bold tracking-widest uppercase text-indigo-300/70 mb-2 ml-2">Pseudo</label>
-          <input type="text" bind:value={pseudo} required placeholder="Votre pseudo..." class="w-full p-4 bg-slate-950/50 border border-indigo-500/20 rounded-xl text-indigo-100 placeholder-indigo-300/20 focus:outline-none focus:border-teal-400/50 focus:ring-1 focus:ring-teal-400/50 transition-all" />
+      {#if criteres.length === 0}
+        <div class="text-center text-indigo-300/40 italic py-10">
+          Aucun critère n'a encore été configuré par l'administrateur.
+        </div>
+      {:else}
+        <div class="flex flex-col gap-6">
+          {#each criteres as critere}
+            <div class="flex flex-col gap-2">
+              <label class="text-xs font-bold tracking-widest uppercase text-teal-300/80 pl-1">
+                {critere.label}
+              </label>
+
+              {#if critere.type_donnee === 'text'}
+                <input type="text" bind:value={userCaracs[critere.cle]} placeholder="..." class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all" />
+              {:else if critere.type_donnee === 'number'}
+                <input type="number" bind:value={userCaracs[critere.cle]} placeholder="0" class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 font-mono focus:outline-none focus:border-teal-400 transition-all" />
+              {:else if critere.type_donnee === 'boolean'}
+                <label class="flex items-center gap-4 bg-slate-950 border border-indigo-500/30 rounded-xl p-3 cursor-pointer hover:border-teal-400/50 transition-all">
+                  <input type="checkbox" bind:checked={userCaracs[critere.cle]} class="accent-teal-400 w-5 h-5 cursor-pointer" />
+                  <span class="text-indigo-200 text-sm">Oui, c'est mon cas</span>
+                </label>
+              {:else if critere.type_donnee === 'date'}
+                <input type="date" bind:value={userCaracs[critere.cle]} class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all color-scheme-dark" />
+              {:else if critere.type_donnee === 'enumeration'}
+                <select bind:value={userCaracs[critere.cle]} class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all cursor-pointer">
+                  <option value="" disabled selected>--- Sélectionnez une option ---</option>
+                  {#each critere.options || [] as option}
+                    <option value={option}>{option}</option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
+          {/each}
         </div>
 
-        <div>
-          <label class="block text-xs font-bold tracking-widest uppercase text-indigo-300/70 mb-2 ml-2">Mot de passe</label>
-          <input type="password" bind:value={password} required placeholder="••••••••" class="w-full p-4 bg-slate-950/50 border border-indigo-500/20 rounded-xl text-indigo-100 placeholder-indigo-300/20 focus:outline-none focus:border-teal-400/50 focus:ring-1 focus:ring-teal-400/50 transition-all" />
-        </div>
-
-        <button
-          type="submit"
-          disabled={isLoading}
-          class={`mt-4 w-full py-4 rounded-xl font-bold uppercase tracking-widest transition-all ${isLoading ? 'opacity-50 cursor-not-allowed' : mode === 'login' ? 'bg-teal-500/20 text-teal-200 border border-teal-500/30 hover:bg-teal-400/30 hover:border-teal-300 hover:shadow-[0_0_20px_rgba(45,212,191,0.4)]' : 'bg-fuchsia-500/20 text-fuchsia-200 border border-fuchsia-500/30 hover:bg-fuchsia-400/30 hover:border-fuchsia-300 hover:shadow-[0_0_20px_rgba(217,70,239,0.4)]'}`}
-        >
-          {isLoading ? 'Transmission...' : mode === 'login' ? 'S\'identifier' : 'Rejoindre'}
+        <button onclick={saveProfile} disabled={isSaving} class="mt-10 w-full py-4 rounded-xl font-black uppercase tracking-widest bg-teal-500/20 text-teal-200 border border-teal-500/30 hover:bg-teal-400/30 hover:border-teal-300 hover:shadow-[0_0_25px_rgba(45,212,191,0.4)] transition-all disabled:opacity-50 cursor-pointer">
+          {isSaving ? 'Écriture dans la matrice...' : 'Sauvegarder le profil'}
         </button>
-      </form>
+      {/if}
     </div>
   {/if}
 </div>
+
+<style>
+  .color-scheme-dark { color-scheme: dark; }
+</style>

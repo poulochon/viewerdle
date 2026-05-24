@@ -1,0 +1,18 @@
+[
+  {
+    "question": "Qu'est-ce que ViewerDle ?",
+    "reponse": "ViewerDle est un mini-jeu interactif où la communauté s'affronte pour deviner l'identité d'un viewer mystère grâce à des indices basés sur ses caractéristiques (rôle, ancienneté, couleur, etc.)."
+  },
+  {
+    "question": "Comment gagner des points ?",
+    "reponse": "Chaque fois que vous trouvez le viewer mystère avec le moins d'essais possible, vous gagnez des points. Ces points vous permettent de grimper dans le classement global et de débloquer de nouveaux rangs !"
+  },
+  {
+    "question": "Comment modifier mon profil ?",
+    "reponse": "Une fois connecté, rendez-vous sur la page de votre Profil. Vous pourrez y remplir vos caractéristiques (couleur, VIP, etc.). Attention, soyez honnête, la matrice vous surveille !"
+  },
+  {
+    "question": "Le jeu est-il gratuit ?",
+    "reponse": "Totalement ! C'est un projet communautaire développé pour s'amuser entre viewers sur Twitch."
+  }
+]

@@ -1,124 +1,146 @@
 <script lang="ts">
-  // 🎯 Le viewer mystère à deviner (plus tard, tiré au sort depuis Supabase)
-  const targetViewer = { pseudo: "Flogi", caracteristiques: { role: "Modérateur", anciennete: "2 ans" } };
+  import { onMount } from 'svelte';
+  import { supabase } from '$lib/supabaseClient';
+  import confetti from 'canvas-confetti';
 
-  // Notre base de données temporaire
-  const fakeViewers = [
-    { pseudo: "Zera", caracteristiques: { role: "VIP", anciennete: "1 an" } },
-    { pseudo: "Kameto", caracteristiques: { role: "Viewer", anciennete: "3 mois" } },
-    { pseudo: "Antoine", caracteristiques: { role: "Viewer", anciennete: "5 ans" } }
-  ];
+  let isLoading = $state(true);
+  let hasWon = $state(false);
+  let targetViewer = $state<any>(null);
+  let criteres = $state<any[]>([]);
+  let allViewers = $state<any[]>([]);
+  let guesses = $state<any[]>([]);
+  let searchQuery = $state('');
+  let showSuggestions = $state(false);
+  let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
+  let errorMessage = $state('');
 
-  let searchQuery = $state("");
-  let suggestions = $state<typeof fakeViewers>([]);
-  // Historique des tentatives du joueur
-  let guesses = $state<typeof fakeViewers>([]);
+  let filteredViewers = $derived(
+    searchQuery.trim() === ''
+      ? []
+      : allViewers.filter(v => v.pseudo.toLowerCase().includes(searchQuery.toLowerCase()) && !guesses.some(g => g.id === v.id))
+  );
 
-  function handleInput() {
-    if (searchQuery.length < 1) {
-      suggestions = [];
-      return;
+  onMount(async () => {
+    try {
+      await initGame();
+      await checkAlreadyPlayed();
+    } catch (e: any) {
+      errorMessage = "Erreur critique : " + e.message;
+      console.error(e);
+    } finally {
+      isLoading = false;
     }
-    const query = searchQuery.toLowerCase();
+  });
 
-    // On propose les viewers qui matchent ET qu'on n'a pas encore essayés
-    suggestions = fakeViewers.filter(v =>
-      v.pseudo.toLowerCase().includes(query) &&
-      !guesses.find(g => g.pseudo === v.pseudo)
-    );
+  async function initGame() {
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Récupération critères
+    const { data: critData, error: critErr } = await supabase.from('config_caracteristiques').select('*').eq('actif', true).order('ordre', { ascending: true });
+    if (critErr) throw critErr;
+    criteres = critData || [];
+
+    // 2. Récupération tous les viewers
+    const { data: viewersData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques');
+    if (viewersData) allViewers = viewersData;
+
+    // 3. Récupération cible du jour
+    const { data: histData } = await supabase.from('historique_cibles').select('id_compte').eq('date_cible', today).maybeSingle();
+
+    if (histData) {
+      const { data: targetData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques').eq('id', histData.id_compte).single();
+      targetViewer = targetData;
+    }
   }
 
-  function selectViewer(viewer: typeof fakeViewers[0]) {
-    // On ajoute le viewer choisi tout en haut de la liste des essais
-    guesses = [viewer, ...guesses];
-    searchQuery = "";
-    suggestions = [];
+  async function checkAlreadyPlayed() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await supabase
+        .from('historique')
+        .select('tentatives')
+        .eq('id_compte', session.user.id)
+        .eq('date_partie', today)
+        .maybeSingle();
+
+      if (data) {
+        hasWon = true;
+        victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer?.pseudo || 'Cible' };
+      }
+    }
   }
 
-  // 🎨 Fonction qui compare une valeur et renvoie le design correspondant
-  function getMatchClass(value: string, targetValue: string) {
-    if (value === targetValue) {
-      // Correct : Menthe lumineuse
-      return "bg-teal-500/20 border-teal-400/50 text-teal-200 shadow-[0_0_15px_rgba(45,212,191,0.2)]";
+  async function handleGuess(viewer: any) {
+    searchQuery = '';
+    showSuggestions = false;
+
+    const results = criteres.map(crit => {
+      const val = viewer.caracteristiques?.[crit.cle];
+      const targetVal = targetViewer.caracteristiques?.[crit.cle];
+      const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+      let hint = (!isCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
+      return { value: val, status: isCorrect ? 'correct' : 'incorrect', hint };
+    });
+
+    guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
+
+    if (viewer.id === targetViewer.id) {
+      hasWon = true;
+      victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
+      confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await supabase.from('historique').insert({
+          id_compte: session.user.id, victoire: true, tentatives: guesses.length, type_jeu: 'viewerdl'
+        });
+      }
     }
-    // Incorrect : Rose poudré / Rouge doux
-    return "bg-rose-500/20 border-rose-400/50 text-rose-200";
   }
 </script>
 
-<div class="flex flex-col items-center mb-12 text-center w-full">
-  <h1 class="text-6xl md:text-8xl font-black uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-teal-200 via-indigo-300 to-fuchsia-300 drop-shadow-[0_0_20px_rgba(165,180,252,0.2)] mb-4">
-    ViewerDle
-  </h1>
-  <p class="text-indigo-200/50 tracking-[0.3em] uppercase text-xs font-semibold">
-    Identifie la cible du jour
-  </p>
-</div>
+<div class="w-full min-h-screen bg-slate-950 p-4 md:p-10 flex flex-col items-center text-white">
+  <h1 class="text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-8">ViewerDle</h1>
 
-<!-- Zone de recherche -->
-<div class="relative w-full max-w-lg z-20">
-  <div class="relative group">
-    <div class="absolute -inset-0.5 bg-gradient-to-r from-teal-400 to-fuchsia-400 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+  {#if errorMessage}
+    <div class="p-6 bg-rose-500/20 border border-rose-500 rounded-xl text-rose-300 font-bold">{errorMessage}</div>
+  {:else if isLoading}
+    <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Initialisation de la matrice...</p>
+  {:else if !targetViewer}
+    <p class="text-indigo-400 uppercase tracking-widest mt-10 text-center">Aucun viewer déployé aujourd'hui.<br/>Contactez l'admin.</p>
+  {:else}
 
-    <input
-      type="text"
-      bind:value={searchQuery}
-      oninput={handleInput}
-      placeholder="Entrez un pseudo..."
-      class="relative w-full p-4 pl-6 text-lg bg-slate-900/80 backdrop-blur-xl border border-indigo-500/30 rounded-2xl text-indigo-100 placeholder-indigo-300/30 focus:outline-none focus:border-teal-300/50 focus:ring-1 focus:ring-teal-300/50 shadow-2xl transition-all"
-    />
-  </div>
+    {#if !hasWon}
+      <div class="w-full max-w-md relative mb-10 z-20">
+        <input type="text" bind:value={searchQuery} onfocus={() => showSuggestions = true} placeholder="Entrez un pseudo..." class="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl p-4 text-white outline-none focus:border-teal-400" />
+        {#if showSuggestions}
+          <div class="absolute w-full bg-slate-900 border border-indigo-500/20 rounded-xl mt-2 overflow-hidden shadow-2xl">
+            {#each filteredViewers as v}
+              <button onclick={() => handleGuess(v)} class="w-full p-4 text-left hover:bg-teal-500/20 font-bold">{v.pseudo}</button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <div class="mb-10 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
+        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Transmission établie !</h2>
+        <p class="text-indigo-100 text-lg">Vous avez identifié <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span> en {victoryInfo?.tentatives} tentatives.</p>
+      </div>
+    {/if}
 
-  {#if suggestions.length > 0}
-    <ul class="absolute w-full mt-3 bg-slate-900/90 backdrop-blur-xl border border-indigo-500/30 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] overflow-hidden">
-      {#each suggestions as viewer}
-        <li>
-          <button
-            class="w-full text-left px-6 py-4 hover:bg-indigo-500/20 focus:bg-indigo-500/20 transition-all cursor-pointer flex justify-between items-center group"
-            onclick={() => selectViewer(viewer)}
-          >
-            <span class="font-bold text-indigo-100 group-hover:text-teal-200 transition-colors">{viewer.pseudo}</span>
-            <span class="text-xs font-medium tracking-wider uppercase text-fuchsia-300/70 border border-fuchsia-500/20 px-2 py-1 rounded-full">
-              {viewer.caracteristiques.role}
-            </span>
-          </button>
-        </li>
+    <div class="flex flex-col gap-3 w-full items-center pb-20">
+      {#each guesses as guess}
+        <div class="flex gap-3 overflow-x-auto w-full justify-center pb-2">
+          <div class="w-40 flex-shrink-0 flex items-center justify-center bg-slate-950 border border-indigo-500/20 rounded-xl p-4 font-black text-sm text-indigo-100">{guess.pseudo}</div>
+          {#each guess.results as res}
+            <div class="w-32 h-20 flex-shrink-0 rounded-xl flex flex-col items-center justify-center p-2 text-center border {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}">
+              <span class="text-xs font-bold break-words">{res.value}</span>
+              {#if res.hint}<span class="text-xs mt-1 animate-bounce">{res.hint}</span>{/if}
+            </div>
+          {/each}
+        </div>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>
-
-<!-- 🎮 Plateau de jeu (Historique des essais) -->
-{#if guesses.length > 0}
-  <div class="w-full max-w-2xl mt-16 flex flex-col gap-3 relative z-10">
-
-    <!-- En-têtes de colonnes -->
-    <div class="grid grid-cols-3 gap-4 px-2 text-center text-[10px] sm:text-xs font-bold tracking-widest uppercase text-indigo-300/50 mb-2">
-      <div>Pseudo</div>
-      <div>Rôle</div>
-      <div>Ancienneté</div>
-    </div>
-
-    <!-- Lignes de tentatives -->
-    {#each guesses as guess}
-      <div class="grid grid-cols-3 gap-2 sm:gap-4 animate-fade-in">
-
-        <!-- Case Pseudo -->
-        <div class={`flex items-center justify-center p-3 sm:p-4 rounded-xl border backdrop-blur-md font-bold transition-all ${getMatchClass(guess.pseudo, targetViewer.pseudo)}`}>
-          <span class="truncate">{guess.pseudo}</span>
-        </div>
-
-        <!-- Case Rôle -->
-        <div class={`flex items-center justify-center p-3 sm:p-4 rounded-xl border backdrop-blur-md font-medium text-sm transition-all ${getMatchClass(guess.caracteristiques.role, targetViewer.caracteristiques.role)}`}>
-          <span class="truncate">{guess.caracteristiques.role}</span>
-        </div>
-
-        <!-- Case Ancienneté -->
-        <div class={`flex items-center justify-center p-3 sm:p-4 rounded-xl border backdrop-blur-md font-medium text-sm transition-all ${getMatchClass(guess.caracteristiques.anciennete, targetViewer.caracteristiques.anciennete)}`}>
-          <span class="truncate">{guess.caracteristiques.anciennete}</span>
-        </div>
-
-      </div>
-    {/each}
-  </div>
-{/if}
