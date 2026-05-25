@@ -120,9 +120,9 @@
       .eq('id', userId);
 
     if (error) {
-      profileMessage = { text: "Erreur de synchronisation : " + error.message, type: 'error' };
+      profileMessage = { text: "Erreur de co : " + error.message, type: 'error' };
     } else {
-      profileMessage = { text: "Profil synchronisé avec la matrice !", type: 'success' };
+      profileMessage = { text: "T'es co bravo !", type: 'success' };
     }
     isSaving = false;
   }
@@ -136,7 +136,7 @@
 
   {#if isLoading}
     <div class="text-teal-300 animate-pulse uppercase tracking-widest text-sm font-bold mt-20">
-      Connexion à la matrice...
+      Connexion à la super bdd...
     </div>
   {:else if !isLoggedIn}
     <div class="w-full max-w-md mt-10 bg-slate-900/80 backdrop-blur-xl border border-indigo-500/20 rounded-3xl p-8 shadow-[0_0_40px_rgba(99,102,241,0.1)]">
@@ -180,7 +180,7 @@
           disabled={isAuthLoading}
           class="mt-4 py-4 rounded-xl font-bold uppercase tracking-widest bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 hover:bg-indigo-400/30 hover:border-indigo-300 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all cursor-pointer disabled:opacity-50"
         >
-          {isAuthLoading ? 'Chargement...' : (authMode === 'login' ? 'Connexion' : 'Créer mon agent')}
+          {isAuthLoading ? 'Chargement...' : (authMode === 'login' ? 'Connexion' : 'Créer mon petit compte')}
         </button>
       </form>
 
@@ -190,7 +190,7 @@
           onclick={() => { authMode = authMode === 'login' ? 'register' : 'login'; authMessage = {text: '', type: ''}; }}
           class="text-xs text-indigo-300/50 hover:text-teal-300 uppercase tracking-widest transition-colors"
         >
-          {authMode === 'login' ? "Pas encore d'agent ? Créer un compte" : "Déjà enregistré ? S'identifier"}
+          {authMode === 'login' ? "Pas encore de compte ? En créer un" : "Déjà enregistré ? S'identifier"}
         </button>
       </div>
     </div>
@@ -220,7 +220,7 @@
     <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-teal-500/20 rounded-3xl shadow-[0_0_40px_rgba(45,212,191,0.05)] overflow-hidden p-6 md:p-10">
 
       <p class="text-xs text-indigo-200/50 uppercase tracking-widest font-semibold mb-8 text-center">
-        Veuillez renseigner vos caractéristiques. Ces données serviront pour le jeu.
+        Veuillez renseigner vos caractéristiques. Ces données serviront pour le jeu
       </p>
 
       {#if criteres.length === 0}
@@ -259,7 +259,7 @@
         </div>
 
         <button onclick={saveProfile} disabled={isSaving} class="mt-10 w-full py-4 rounded-xl font-black uppercase tracking-widest bg-teal-500/20 text-teal-200 border border-teal-500/30 hover:bg-teal-400/30 hover:border-teal-300 hover:shadow-[0_0_25px_rgba(45,212,191,0.4)] transition-all disabled:opacity-50 cursor-pointer">
-          {isSaving ? 'Écriture dans la matrice...' : 'Sauvegarder le profil'}
+          {isSaving ? 'Écriture en base...' : 'Sauvegarder le profil'}
         </button>
       {/if}
     </div>

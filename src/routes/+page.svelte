@@ -34,12 +34,12 @@
   </h1>
 
   <p class="text-indigo-200/70 max-w-md mx-auto mb-12 leading-relaxed text-sm md:text-base">
-    Bienvenue sur le réseau d'identification de la communauté. Analysez les indices, décryptez les caractéristiques et démasquez le viewer mystère du jour. La matrice vous attend.
+    Bienvenue dans le viewerdl. Trouvez le viewer du jour pour gagner des points (pas encore ca arrive soon). Analysez les indices pour trouver le viewer mystère du jour. Glhf
   </p>
 
   {#if isLoading}
     <p class="text-teal-300 animate-pulse text-xs uppercase tracking-widest font-mono">
-      Calcul des statistiques réseau...
+      Calcul en cours ...
     </p>
   {:else}
     <div class="grid grid-cols-2 gap-4 md:gap-6 w-full max-w-md animate-fade-in">
