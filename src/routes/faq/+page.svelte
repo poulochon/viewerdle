@@ -24,9 +24,6 @@
     <h1 class="text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-indigo-300 to-fuchsia-300 mb-4">
       À Propos & F.A.Q
     </h1>
-    <p class="text-indigo-200/50 tracking-[0.2em] uppercase text-xs font-semibold">
-      Base de connaissances de la matrice
-    </p>
   </div>
 
   <div class="w-full flex flex-col gap-4">
@@ -63,8 +60,7 @@
 
   <div class="mt-12 text-center p-6 border border-dashed border-indigo-500/30 rounded-2xl bg-indigo-500/5">
     <p class="text-indigo-300/70 text-sm">
-      Une autre question ? Le système est encore en phase de déploiement.
-      <br/>Contactez l'administrateur du réseau.
+      Une autre question ? C'est encore une alpha donc ca viendra peut etre un jour
     </p>
   </div>
 

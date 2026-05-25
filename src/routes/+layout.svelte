@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import { version } from '../../package.json';
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
 
@@ -76,6 +77,9 @@ if (error) {
     <a href="/" class="text-2xl font-black tracking-widest uppercase text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-indigo-300 to-fuchsia-300 drop-shadow-sm hover:opacity-80 transition-opacity">
       ViewerDle
     </a>
+    <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-full shadow-[0_0_10px_rgba(45,212,191,0.2)]">
+        v{version}
+      </span>
 
     <div class="flex items-center gap-8 text-sm font-medium tracking-wide uppercase text-indigo-200/70">
       <a href="/jouer" class="hover:text-teal-300 transition-all">Jouer</a>
