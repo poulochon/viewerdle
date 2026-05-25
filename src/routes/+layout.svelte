@@ -74,12 +74,14 @@ if (error) {
   <div class="absolute inset-0 bg-[linear-gradient(to_right,#818cf81a_1px,transparent_1px),linear-gradient(to_bottom,#818cf81a_1px,transparent_1px)] bg-[size:2rem_2rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none z-0"></div>
 
   <nav class="relative z-20 w-full px-6 py-4 flex justify-between items-center backdrop-blur-md bg-slate-950/50 border-b border-indigo-500/20">
-    <a href="/" class="text-2xl font-black tracking-widest uppercase text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-indigo-300 to-fuchsia-300 drop-shadow-sm hover:opacity-80 transition-opacity">
-      ViewerDle
-    </a>
-    <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-full shadow-[0_0_10px_rgba(45,212,191,0.2)]">
+    <a href="/" class="flex items-start gap-2 hover:scale-105 transition-all cursor-pointer group">
+      <span class="font-black text-teal-300 text-xl md:text-2xl leading-none group-hover:text-teal-100 transition-colors drop-shadow-[0_0_10px_rgba(45,212,191,0.3)]">
+        ViewerDle
+      </span>
+      <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-full shadow-[0_0_10px_rgba(45,212,191,0.2)]">
         v{version}
       </span>
+    </a>
 
     <div class="flex items-center gap-8 text-sm font-medium tracking-wide uppercase text-indigo-200/70">
       <a href="/jouer" class="hover:text-teal-300 transition-all">Jouer</a>
