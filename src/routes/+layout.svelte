@@ -78,7 +78,7 @@ if (error) {
     </a>
 
     <div class="flex items-center gap-8 text-sm font-medium tracking-wide uppercase text-indigo-200/70">
-      <a href="/" class="hover:text-teal-300 transition-all">Jouer</a>
+      <a href="/jouer" class="hover:text-teal-300 transition-all">Jouer</a>
       <a href="/classement" class="hover:text-indigo-300 transition-all">Classement</a>
 
       {#if isAdmin}

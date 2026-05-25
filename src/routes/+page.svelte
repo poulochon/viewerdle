@@ -1,146 +1,72 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
-  import confetti from 'canvas-confetti';
 
   let isLoading = $state(true);
-  let hasWon = $state(false);
-  let targetViewer = $state<any>(null);
-  let criteres = $state<any[]>([]);
-  let allViewers = $state<any[]>([]);
-  let guesses = $state<any[]>([]);
-  let searchQuery = $state('');
-  let showSuggestions = $state(false);
-  let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
-  let errorMessage = $state('');
-
-  let filteredViewers = $derived(
-    searchQuery.trim() === ''
-      ? []
-      : allViewers.filter(v => v.pseudo.toLowerCase().includes(searchQuery.toLowerCase()) && !guesses.some(g => g.id === v.id))
-  );
+  let stats = $state({ totalPlayers: 0, totalGames: 0 });
 
   onMount(async () => {
-    try {
-      await initGame();
-      await checkAlreadyPlayed();
-    } catch (e: any) {
-      errorMessage = "Erreur critique : " + e.message;
-      console.error(e);
-    } finally {
-      isLoading = false;
-    }
+    isLoading = true;
+
+    // Récupération du nombre d'agents (viewers) inscrits
+    const { count: playersCount } = await supabase
+      .from('profil_viewer')
+      .select('*', { count: 'exact', head: true });
+
+    // Récupération du nombre total de parties enregistrées
+    const { count: gamesCount } = await supabase
+      .from('historique')
+      .select('*', { count: 'exact', head: true });
+
+    stats = {
+      totalPlayers: playersCount || 0,
+      totalGames: gamesCount || 0
+    };
+
+    isLoading = false;
   });
-
-  async function initGame() {
-    const today = new Date().toISOString().split('T')[0];
-
-    // 1. Récupération critères
-    const { data: critData, error: critErr } = await supabase.from('config_caracteristiques').select('*').eq('actif', true).order('ordre', { ascending: true });
-    if (critErr) throw critErr;
-    criteres = critData || [];
-
-    // 2. Récupération tous les viewers
-    const { data: viewersData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques');
-    if (viewersData) allViewers = viewersData;
-
-    // 3. Récupération cible du jour
-    const { data: histData } = await supabase.from('historique_cibles').select('id_compte').eq('date_cible', today).maybeSingle();
-
-    if (histData) {
-      const { data: targetData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques').eq('id', histData.id_compte).single();
-      targetViewer = targetData;
-    }
-  }
-
-  async function checkAlreadyPlayed() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const today = new Date().toISOString().split('T')[0];
-      const { data } = await supabase
-        .from('historique')
-        .select('tentatives')
-        .eq('id_compte', session.user.id)
-        .eq('date_partie', today)
-        .maybeSingle();
-
-      if (data) {
-        hasWon = true;
-        victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer?.pseudo || 'Cible' };
-      }
-    }
-  }
-
-  async function handleGuess(viewer: any) {
-    searchQuery = '';
-    showSuggestions = false;
-
-    const results = criteres.map(crit => {
-      const val = viewer.caracteristiques?.[crit.cle];
-      const targetVal = targetViewer.caracteristiques?.[crit.cle];
-      const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
-      let hint = (!isCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
-      return { value: val, status: isCorrect ? 'correct' : 'incorrect', hint };
-    });
-
-    guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
-
-    if (viewer.id === targetViewer.id) {
-      hasWon = true;
-      victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
-      confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
-
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        await supabase.from('historique').insert({
-          id_compte: session.user.id, victoire: true, tentatives: guesses.length, type_jeu: 'viewerdl'
-        });
-      }
-    }
-  }
 </script>
 
-<div class="w-full min-h-screen bg-slate-950 p-4 md:p-10 flex flex-col items-center text-white">
-  <h1 class="text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-8">ViewerDle</h1>
+<div class="w-full max-w-3xl mx-auto p-4 md:p-10 flex flex-col items-center text-center text-white min-h-[70vh] justify-center animate-fade-in">
 
-  {#if errorMessage}
-    <div class="p-6 bg-rose-500/20 border border-rose-500 rounded-xl text-rose-300 font-bold">{errorMessage}</div>
-  {:else if isLoading}
-    <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Initialisation de la matrice...</p>
-  {:else if !targetViewer}
-    <p class="text-indigo-400 uppercase tracking-widest mt-10 text-center">Aucun viewer déployé aujourd'hui.<br/>Contactez l'admin.</p>
+  <h1 class="text-6xl md:text-7xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-indigo-300 to-fuchsia-300 mb-4 drop-shadow-[0_0_30px_rgba(99,102,241,0.2)]">
+    ViewerDle
+  </h1>
+
+  <p class="text-indigo-200/70 max-w-md mx-auto mb-12 leading-relaxed text-sm md:text-base">
+    Bienvenue sur le réseau d'identification de la communauté. Analysez les indices, décryptez les caractéristiques et démasquez le viewer mystère du jour. La matrice vous attend.
+  </p>
+
+  {#if isLoading}
+    <p class="text-teal-300 animate-pulse text-xs uppercase tracking-widest font-mono">
+      Calcul des statistiques réseau...
+    </p>
   {:else}
+    <div class="grid grid-cols-2 gap-4 md:gap-6 w-full max-w-md animate-fade-in">
 
-    {#if !hasWon}
-      <div class="w-full max-w-md relative mb-10 z-20">
-        <input type="text" bind:value={searchQuery} onfocus={() => showSuggestions = true} placeholder="Entrez un pseudo..." class="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl p-4 text-white outline-none focus:border-teal-400" />
-        {#if showSuggestions}
-          <div class="absolute w-full bg-slate-900 border border-indigo-500/20 rounded-xl mt-2 overflow-hidden shadow-2xl">
-            {#each filteredViewers as v}
-              <button onclick={() => handleGuess(v)} class="w-full p-4 text-left hover:bg-teal-500/20 font-bold">{v.pseudo}</button>
-            {/each}
-          </div>
-        {/if}
+      <div class="bg-slate-900/60 backdrop-blur-md border border-indigo-500/20 rounded-2xl p-6 shadow-xl group hover:border-teal-500/40 transition-colors">
+        <span class="block text-4xl md:text-5xl font-black text-teal-300 font-mono mb-2 drop-shadow-[0_0_10px_rgba(45,212,191,0.3)]">
+          {stats.totalPlayers}
+        </span>
+        <span class="text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
+          Agents Inscrits
+        </span>
       </div>
-    {:else}
-      <div class="mb-10 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
-        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Transmission établie !</h2>
-        <p class="text-indigo-100 text-lg">Vous avez identifié <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span> en {victoryInfo?.tentatives} tentatives.</p>
-      </div>
-    {/if}
 
-    <div class="flex flex-col gap-3 w-full items-center pb-20">
-      {#each guesses as guess}
-        <div class="flex gap-3 overflow-x-auto w-full justify-center pb-2">
-          <div class="w-40 flex-shrink-0 flex items-center justify-center bg-slate-950 border border-indigo-500/20 rounded-xl p-4 font-black text-sm text-indigo-100">{guess.pseudo}</div>
-          {#each guess.results as res}
-            <div class="w-32 h-20 flex-shrink-0 rounded-xl flex flex-col items-center justify-center p-2 text-center border {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}">
-              <span class="text-xs font-bold break-words">{res.value}</span>
-              {#if res.hint}<span class="text-xs mt-1 animate-bounce">{res.hint}</span>{/if}
-            </div>
-          {/each}
-        </div>
-      {/each}
+      <div class="bg-slate-900/60 backdrop-blur-md border border-indigo-500/20 rounded-2xl p-6 shadow-xl group hover:border-fuchsia-500/40 transition-colors">
+        <span class="block text-4xl md:text-5xl font-black text-fuchsia-300 font-mono mb-2 drop-shadow-[0_0_10px_rgba(217,70,239,0.3)]">
+          {stats.totalGames}
+        </span>
+        <span class="text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
+          Parties Jouées
+        </span>
+      </div>
+
     </div>
+
+    <a href="/jouer" class="mt-12 text-xs font-bold uppercase tracking-widest text-teal-300/60 hover:text-teal-300 border border-teal-500/20 hover:border-teal-500/50 hover:bg-teal-500/10 px-6 py-3 rounded-xl transition-all cursor-pointer">
+      Accéder à la grille de jeu →
+    </a>
   {/if}
+
 </div>

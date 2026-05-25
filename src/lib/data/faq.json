@@ -1,18 +1,26 @@
 [
   {
     "question": "Qu'est-ce que ViewerDle ?",
-    "reponse": "ViewerDle est un mini-jeu interactif où la communauté s'affronte pour deviner l'identité d'un viewer mystère grâce à des indices basés sur ses caractéristiques (rôle, ancienneté, couleur, etc.)."
+    "reponse": "ViewerDle est un mini-jeu inspiré des autres Dle, comme pour les autres il faut deviner un viewer à partir d'indice. Chaque jour un nouveau Viewer est désigné aléatoirement et doit être deviné"
   },
   {
-    "question": "Comment gagner des points ?",
-    "reponse": "Chaque fois que vous trouvez le viewer mystère avec le moins d'essais possible, vous gagnez des points. Ces points vous permettent de grimper dans le classement global et de débloquer de nouveaux rangs !"
+    "question": "Comment le site fonctionne ?",
+    "reponse": "Il faut se créer un compte pour jouer, un compte est créé avec un nom d'utilisateur et un mdp (essayez de pas l'oublier j'ai pas encore fait de système pour le récupérer). Dans jouer vous pouvez chercher le nom d'un viewer et les critères se so colorerons en fonction des critères cibles"
   },
   {
-    "question": "Comment modifier mon profil ?",
-    "reponse": "Une fois connecté, rendez-vous sur la page de votre Profil. Vous pourrez y remplir vos caractéristiques (couleur, VIP, etc.). Attention, soyez honnête, la matrice vous surveille !"
+    "question": "Comment mettre mes caractérisques sur mon profil ?",
+    "reponse": "Une fois connecté, allez sur la page de votre Profil. Vous pourrez y remplir vos caractéristiques (couleur, VIP, etc.)"
   },
   {
-    "question": "Le jeu est-il gratuit ?",
-    "reponse": "Totalement ! C'est un projet communautaire développé pour s'amuser entre viewers sur Twitch."
+    "question": "Comment t'as dev tout ca wsh ?",
+    "reponse": "J'ai fait toute la conception fonctionnelle (en gros comment l'appli fonctionne) et toute la conception technique (choix de techno et grandes lignes du code) seul. Une fois tout décidé et l'application entièrement imaginé je me suis appuyé sur Gemini pour faire le code rapidemment. J'ai entièrement relu, repassé derrère et validé le code. Merci surtout pour le design parce que je suis ingé pas designeur"
+  },
+  {
+    "question": "Quoi ?",
+    "reponse": "Feur"
+  },
+  {
+    "question": "Qu'est ce qu'on retrouve comme fonctionnalités ?",
+    "reponse": "Déjà la partie jeu en tant que tel, il y aura aussi un classement à partir du nombre de point, la strike permettra de gagner encore plus de point. Les admins peuvent modifier les catégories et donc faire évoluer le jeu au fil du temps facilement. C'est une alpha pour l'instant"
   }
 ]
