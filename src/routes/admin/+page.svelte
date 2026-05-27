@@ -182,13 +182,13 @@
       Panneau d'Administration
     </h1>
     <p class="text-rose-200/50 tracking-[0.2em] uppercase text-xs font-semibold mt-2">
-      Accès Niveau 1 : Modification du cœur du jeu
+      Modification du cœur du jeu
     </p>
   </div>
 
   {#if isLoading}
     <div class="text-indigo-300 animate-pulse uppercase tracking-widest text-sm font-bold mt-10">
-      Connexion à la matrice de données...
+      Connexion à la bdd...
     </div>
   {:else}
     <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-rose-500/30 rounded-3xl shadow-[0_0_40px_rgba(244,63,94,0.1)] overflow-hidden">

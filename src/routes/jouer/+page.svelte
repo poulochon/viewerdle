@@ -22,7 +22,6 @@
   );
 
   onMount(async () => {
-    // BARRIÈRE DE SÉCURITÉ : Vérification de la session et des droits 1 ou 3
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       goto('/');
@@ -33,10 +32,9 @@
       .from('viewer_droit')
       .select('id_droit')
       .eq('id_viewer', session.user.id)
-      .in('id_droit', [1, 3]); // Doit avoir le rôle 1 ou 3
+      .in('id_droit', [1, 3]);
 
     if (!roleCheck || roleCheck.length === 0) {
-      // Pas les droits nécessaires -> Expulsion vers l'accueil
       goto('/');
       return;
     }
@@ -53,26 +51,85 @@
   });
 
   async function initGame() {
-    const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
 
-    const { data: critData, error: critErr } = await supabase.from('config_caracteristiques').select('*').eq('actif', true).order('ordre', { ascending: true });
-    if (critErr) throw critErr;
-    criteres = critData || [];
+      // 1. Récupération des critères de jeu
+      const { data: critData, error: critErr } = await supabase
+        .from('config_caracteristiques')
+        .select('*')
+        .eq('actif', true)
+        .order('ordre', { ascending: true });
 
-    const { data: viewersData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques');
-    if (viewersData) allViewers = viewersData;
+      if (critErr) throw critErr;
+      criteres = critData ? critData.slice(0, 5) : [];
 
-    const { data: histData } = await supabase.from('historique_cibles').select('id_compte').eq('date_cible', today).maybeSingle();
+      // 2. Récupération des viewers
+      const { data: viewersData } = await supabase
+        .from('profil_viewer')
+        .select('id, pseudo, caracteristiques');
 
-    if (histData) {
-      const { data: targetData } = await supabase.from('profil_viewer').select('id, pseudo, caracteristiques').eq('id', histData.id_compte).single();
-      targetViewer = targetData;
+      if (viewersData) allViewers = viewersData;
+
+      // 3. Récupération du Snapshot figé de la cible du jour
+      let { data: histData } = await supabase
+        .from('historique_cibles')
+        .select('id_compte, caracteristiques, profil_viewer(pseudo)')
+        .eq('date_cible', today)
+        .eq('type_jeu', 'viewerdl')
+        .maybeSingle();
+
+      // 4. GÉNÉRATION "JUST-IN-TIME" si aucune cible n'existe
+      if (!histData && allViewers.length > 0) {
+        console.log("Initialisation de la cible du jour...");
+
+        // Tirage au sort aléatoire
+        const randomIndex = Math.floor(Math.random() * allViewers.length);
+        const randomTarget = allViewers[randomIndex];
+
+        // Tentative d'insertion en base
+        const { error: insertErr } = await supabase
+          .from('historique_cibles')
+          .insert({
+            date_cible: today,
+            id_compte: randomTarget.id,
+            type_jeu: 'viewerdl',
+            caracteristiques: randomTarget.caracteristiques
+          });
+
+        if (insertErr) {
+          // S'il y a une erreur (ex: violation de la contrainte unique parce qu'un autre agent a été plus rapide)
+          // On re-télécharge la cible que l'autre agent vient juste d'insérer.
+          const { data: retryData } = await supabase
+            .from('historique_cibles')
+            .select('id_compte, caracteristiques, profil_viewer(pseudo)')
+            .eq('date_cible', today)
+            .eq('type_jeu', 'viewerdl')
+            .maybeSingle();
+
+          histData = retryData;
+        } else {
+          // L'insertion a réussi ! On construit l'objet manuellement pour éviter une requête réseau inutile
+          histData = {
+            id_compte: randomTarget.id,
+            caracteristiques: randomTarget.caracteristiques,
+            profil_viewer: { pseudo: randomTarget.pseudo }
+          };
+        }
+      }
+
+      // 5. Assignation finale
+      if (histData) {
+        targetViewer = {
+          id: histData.id_compte,
+          pseudo: histData.profil_viewer?.pseudo || 'Agent Mystère',
+          caracteristiques: histData.caracteristiques
+        };
+      }
     }
-  }
 
   async function checkAlreadyPlayed() {
     const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
+    if (session && targetViewer) {
       const today = new Date().toISOString().split('T')[0];
       const { data } = await supabase
         .from('historique')
@@ -83,7 +140,7 @@
 
       if (data) {
         hasWon = true;
-        victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer?.pseudo || 'Cible' };
+        victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
       }
     }
   }
@@ -93,11 +150,19 @@
     showSuggestions = false;
 
     const results = criteres.map(crit => {
+      // Valeurs brutes pour la comparaison
       const val = viewer.caracteristiques?.[crit.cle];
       const targetVal = targetViewer.caracteristiques?.[crit.cle];
       const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+
+      // Traduction des booléens pour l'affichage
+      let displayValue = val;
+      if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
+      if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
+
       let hint = (!isCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
-      return { value: val, status: isCorrect ? 'correct' : 'incorrect', hint };
+
+      return { value: displayValue, status: isCorrect ? 'correct' : 'incorrect', hint };
     });
 
     guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
@@ -129,8 +194,8 @@
   {:else}
 
     {#if !hasWon}
-      <div class="w-full max-w-md relative mb-10 z-20">
-        <input type="text" bind:value={searchQuery} onfocus={() => showSuggestions = true} placeholder="Entrez un pseudo..." class="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl p-4 text-white outline-none focus:border-teal-400" />
+      <div class="w-full max-w-md relative mb-12 z-20">
+        <input type="text" bind:value={searchQuery} onfocus={() => showSuggestions = true} placeholder="Entrez un pseudo..." class="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl p-4 text-white outline-none focus:border-teal-400 shadow-[0_0_15px_rgba(99,102,241,0.1)] transition-all" />
         {#if showSuggestions}
           <div class="absolute w-full bg-slate-900 border border-indigo-500/20 rounded-xl mt-2 overflow-hidden shadow-2xl">
             {#each filteredViewers as v}
@@ -140,28 +205,84 @@
         {/if}
       </div>
     {:else}
-      <div class="mb-10 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
+      <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
         <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Transmission établie !</h2>
         <p class="text-indigo-100 text-lg">
-          Vous avez déjà identifié le viewer <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
+          Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
           en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
         </p>
         <p class="text-indigo-300/60 mt-6 uppercase tracking-widest text-xs font-bold">Revenez demain pour une nouvelle partie !</p>
       </div>
     {/if}
 
-    <div class="flex flex-col gap-3 w-full items-center pb-20">
-      {#each guesses as guess}
-        <div class="flex gap-3 overflow-x-auto w-full justify-center pb-2">
-          <div class="w-40 flex-shrink-0 flex items-center justify-center bg-slate-950 border border-indigo-500/20 rounded-xl p-4 font-black text-sm text-indigo-100">{guess.pseudo}</div>
-          {#each guess.results as res}
-            <div class="w-32 h-20 flex-shrink-0 rounded-xl flex flex-col items-center justify-center p-2 text-center border {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}">
-              <span class="text-xs font-bold break-words">{res.value}</span>
-              {#if res.hint}<span class="text-xs mt-1 animate-bounce">{res.hint}</span>{/if}
+    <div class="flex flex-col gap-3 w-full max-w-4xl mx-auto pb-20 mt-4">
+
+          {#if guesses.length > 0}
+            <div class="flex w-full gap-1.5 md:gap-3 items-end mb-1 px-1 animate-fade-in">
+
+              <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 text-center">
+                <span class="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-indigo-300/50">
+                  Agent
+                </span>
+              </div>
+
+              {#each criteres as crit}
+                <div class="flex-1 min-w-0 flex justify-center text-center">
+                  <span class="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-teal-300/50 break-words leading-tight line-clamp-2">
+                    {crit.label}
+                  </span>
+                </div>
+              {/each}
+
+            </div>
+          {/if}
+
+          {#each guesses as guess}
+            <div class="flex w-full gap-1.5 md:gap-3 items-stretch">
+
+              <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md border border-indigo-500/30 rounded-xl p-2 md:p-4 font-black text-[10px] md:text-sm text-indigo-100 shadow-lg z-10">
+                <span class="break-words text-center line-clamp-2 leading-tight">{guess.pseudo}</span>
+              </div>
+
+              {#each guess.results as res, i}
+                <div
+                  class="flex-1 min-w-0 flex flex-col items-center justify-center p-1 md:p-3 text-center border rounded-xl shadow-lg flip-card
+                  {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}"
+                  style="animation-delay: {i * 150}ms;"
+                >
+                  <span class="text-[9px] md:text-xs font-bold text-white break-words whitespace-normal leading-tight">
+                    {res.value}
+                  </span>
+                  {#if res.hint}
+                    <span class="text-[10px] md:text-xs mt-1 animate-bounce">{res.hint}</span>
+                  {/if}
+                </div>
+              {/each}
+
             </div>
           {/each}
         </div>
-      {/each}
-    </div>
   {/if}
 </div>
+
+<style>
+  /* Définition de l'animation de retournement (Flip 3D) */
+  @keyframes flipIn {
+    0% {
+      transform: perspective(400px) rotateX(90deg);
+      opacity: 0;
+    }
+    100% {
+      transform: perspective(400px) rotateX(0deg);
+      opacity: 1;
+    }
+  }
+
+  /* Classe appliquée à chaque case */
+  .flip-card {
+    /* L'opacité à 0 empêche la case d'être visible avant le début de l'animation */
+    opacity: 0;
+    /* L'animation dure 0.5s. 'forwards' permet de figer la case dans son état final (opacity 1) */
+    animation: flipIn 0.5s ease-out forwards;
+  }
+</style>
