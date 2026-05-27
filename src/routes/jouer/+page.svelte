@@ -206,7 +206,7 @@
       </div>
     {:else}
       <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
-        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Transmission établie !</h2>
+        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Vous avez trouvé !</h2>
         <p class="text-indigo-100 text-lg">
           Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
           en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
