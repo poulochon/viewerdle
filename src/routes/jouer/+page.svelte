@@ -43,7 +43,7 @@
       await initGame();
       await checkAlreadyPlayed();
     } catch (e: any) {
-      errorMessage = "Erreur critique de la matrice : " + e.message;
+      errorMessage = "Erreur critique de la bdd : " + e.message;
       console.error(e);
     } finally {
       isLoading = false;

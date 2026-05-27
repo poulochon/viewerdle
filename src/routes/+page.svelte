@@ -36,7 +36,7 @@
     const { data: { session } } = await supabase.auth.getSession();
 
     if (!session) {
-      authMessage = "Veuillez d'abord vous identifier pour accéder à la matrice.";
+      authMessage = "Veuillez d'abord vous identifier pour accéder au jeu.";
       return;
     }
 
@@ -94,7 +94,7 @@
           {stats.totalPlayers}
         </span>
         <span class="text-xs uppercase tracking-widest text-indigo-200/60 font-bold">
-          Agents Inscrits
+          Joueurs Inscrits
         </span>
       </div>
 

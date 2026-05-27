@@ -79,7 +79,7 @@
 
   {#if isLoading}
     <p class="text-amber-300 animate-pulse uppercase tracking-widest text-sm font-bold mt-10">
-      Extraction des données de la matrice...
+      Extraction des données de la bdd...
     </p>
   {:else}
 
