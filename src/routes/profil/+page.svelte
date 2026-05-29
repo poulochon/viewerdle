@@ -1,271 +1,231 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
+  import { goto } from '$app/navigation';
 
-  // --- ÉTATS GLOBAUX ---
   let isLoading = $state(true);
-  let isLoggedIn = $state(false);
-
-  // --- ÉTATS : AUTHENTIFICATION ---
-  let authMode = $state<'login' | 'register'>('login');
-  let authPseudo = $state('');
-  let authPassword = $state('');
-  let authMessage = $state({ text: '', type: '' });
-  let isAuthLoading = $state(false);
-
-  // --- ÉTATS : PROFIL ---
-  let isSaving = $state(false);
-  let profileMessage = $state({ text: '', type: '' });
-  let userId = $state('');
-  let pseudo = $state('');
-  let userCaracs = $state<Record<string, any>>({});
+  let userProfile = $state<any>(null);
+  let userPseudo = $state('');
   let criteres = $state<any[]>([]);
 
-  // --- INITIALISATION ---
+  // Messages de retour pour le profil
+  let profileMessage = $state('');
+  let profileError = $state('');
+
+  // Variables pour la sécurité (Mot de passe)
+  let confirmPseudo = $state('');
+  let newPassword = $state('');
+  let pwdMessage = $state('');
+  let pwdError = $state('');
+
   onMount(async () => {
-    // Écoute des changements de connexion (se déclenche aussi au chargement)
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        isLoggedIn = true;
-        userId = session.user.id;
-        await fetchProfileData();
-      } else {
-        isLoggedIn = false;
-        isLoading = false;
-      }
-    });
-  });
-
-  // --- LOGIQUE : AUTHENTIFICATION ---
-  function getFakeEmail(p: string) {
-    const cleanPseudo = p.toLowerCase().replace(/[^a-z0-9]/g, '');
-    return `${cleanPseudo}_viewerdl_test@gmail.com`;
-  }
-
-  async function handleAuth(e: Event) {
-    e.preventDefault();
-    isAuthLoading = true;
-    authMessage = { text: '', type: '' };
-
-    if (!authPseudo || !authPassword) {
-      authMessage = { text: "Veuillez remplir tous les champs.", type: 'error' };
-      isAuthLoading = false;
+    // 1. Vérification de la session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      goto('/');
       return;
     }
 
-    const email = getFakeEmail(authPseudo);
-
-    if (authMode === 'register') {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password: authPassword,
-        options: {
-          data: { pseudo_reel: authPseudo } // Important pour ton Trigger SQL !
-        }
-      });
-      if (error) authMessage = { text: "Erreur d'inscription : " + error.message, type: 'error' };
-      // Si succès, onAuthStateChange va s'en rendre compte et basculer la vue
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password: authPassword
-      });
-      if (error) authMessage = { text: "Identifiants incorrects.", type: 'error' };
-    }
-
-    isAuthLoading = false;
-  }
-
-  // --- LOGIQUE : PROFIL ---
-  async function fetchProfileData() {
-    isLoading = true;
-
-    const { data: profileData } = await supabase
+    // 2. Récupération des données du joueur
+    const { data: profile } = await supabase
       .from('profil_viewer')
-      .select('pseudo, caracteristiques')
-      .eq('id', userId)
+      .select('*')
+      .eq('id', session.user.id)
       .single();
 
-    if (profileData) {
-      pseudo = profileData.pseudo;
-      userCaracs = profileData.caracteristiques || {};
+    if (profile) {
+      userProfile = profile;
+      userPseudo = profile.pseudo;
+      // On s'assure que l'objet caractéristiques existe bien
+      if (!userProfile.caracteristiques) {
+        userProfile.caracteristiques = {};
+      }
     }
 
+    // 3. Récupération des critères actifs pour générer le formulaire
     const { data: critData } = await supabase
       .from('config_caracteristiques')
       .select('*')
       .eq('actif', true)
       .order('ordre', { ascending: true });
 
-    if (critData) {
-      criteres = critData;
-      criteres.forEach(c => {
-        if (userCaracs[c.cle] === undefined) {
-          if (c.type_donnee === 'boolean') userCaracs[c.cle] = false;
-          else userCaracs[c.cle] = '';
-        }
-      });
+    criteres = critData || [];
+    isLoading = false;
+  });
+
+  // Fonction pour changer le mot de passe
+  async function handlePasswordUpdate() {
+    pwdError = '';
+    pwdMessage = '';
+
+    if (confirmPseudo !== userPseudo) {
+      pwdError = "Le pseudo de confirmation est incorrect.";
+      return;
+    }
+    if (newPassword.length < 6) {
+      pwdError = "Le mot de passe doit faire au moins 6 caractères.";
+      return;
     }
 
-    isLoading = false;
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      pwdError = "Erreur système : " + error.message;
+    } else {
+      pwdMessage = "Mot de passe modifié avec succès !";
+      confirmPseudo = '';
+      newPassword = '';
+    }
   }
 
-  async function saveProfile() {
-    isSaving = true;
-    profileMessage = { text: '', type: '' };
+  // Fonction pour sauvegarder les caractéristiques
+  async function handleSaveProfile() {
+    profileMessage = '';
+    profileError = '';
 
     const { error } = await supabase
       .from('profil_viewer')
-      .update({ caracteristiques: userCaracs })
-      .eq('id', userId);
+      .update({ caracteristiques: userProfile.caracteristiques })
+      .eq('id', userProfile.id);
 
     if (error) {
-      profileMessage = { text: "Erreur de co : " + error.message, type: 'error' };
+      profileError = "Impossible de sauvegarder : " + error.message;
     } else {
-      profileMessage = { text: "T'es co bravo !", type: 'success' };
+      profileMessage = "Vos caractéristiques ont bien été mises à jour !";
     }
-    isSaving = false;
-  }
-
-  async function logout() {
-    await supabase.auth.signOut();
   }
 </script>
 
-<div class="w-full max-w-2xl mx-auto flex flex-col items-center animate-fade-in z-20 pb-20">
+<div class="w-full max-w-4xl mx-auto p-4 md:p-10 flex flex-col items-center animate-fade-in pb-20 text-white">
+
+  <div class="text-center mb-12">
+    <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2 drop-shadow-md">
+      Mon Espace Joueur
+    </h1>
+    <p class="text-indigo-300/50 uppercase tracking-[0.3em] text-xs font-bold">
+      Gestion du compte et des caractéristiques
+    </p>
+  </div>
 
   {#if isLoading}
-    <div class="text-teal-300 animate-pulse uppercase tracking-widest text-sm font-bold mt-20">
-      Connexion à la super bdd...
-    </div>
-  {:else if !isLoggedIn}
-    <div class="w-full max-w-md mt-10 bg-slate-900/80 backdrop-blur-xl border border-indigo-500/20 rounded-3xl p-8 shadow-[0_0_40px_rgba(99,102,241,0.1)]">
+    <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Chargement des données du viewer...</p>
+  {:else if userProfile}
 
-      <div class="text-center mb-8">
-        <h1 class="text-3xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2">
-          {authMode === 'login' ? 'Identification' : 'Enregistrement'}
-        </h1>
-        <p class="text-indigo-200/50 text-xs tracking-widest uppercase">Accès au réseau ViewerDle</p>
+    <div class="w-full mb-10 p-6 md:p-8 bg-slate-900/80 backdrop-blur-md border border-rose-500/30 rounded-3xl shadow-[0_0_20px_rgba(244,63,94,0.1)]">
+      <h2 class="text-xs font-black uppercase tracking-widest text-rose-300/70 mb-6 flex items-center gap-2">
+        <div class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
+        Sécurité du compte
+      </h2>
+
+      <div class="flex flex-col md:flex-row gap-4 items-stretch">
+        <input
+          type="text"
+          bind:value={confirmPseudo}
+          placeholder="Confirmez votre Pseudo"
+          class="flex-1 bg-slate-950 border border-rose-500/30 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-rose-400 placeholder:text-slate-600 transition-colors"
+        />
+        <input
+          type="password"
+          bind:value={newPassword}
+          placeholder="Nouveau mot de passe"
+          class="flex-1 bg-slate-950 border border-rose-500/30 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-rose-400 placeholder:text-slate-600 transition-colors"
+        />
+        <button
+          onclick={handlePasswordUpdate}
+          class="bg-rose-500/10 border border-rose-500/50 hover:bg-rose-500/20 text-rose-300 font-bold uppercase tracking-widest text-xs px-6 py-3 rounded-xl transition-all whitespace-nowrap shadow-[0_0_10px_rgba(244,63,94,0.1)] hover:shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+        >
+          Appliquer
+        </button>
       </div>
 
-      {#if authMessage.text}
-        <div class="mb-6 p-4 rounded-xl text-xs font-bold text-center border backdrop-blur-sm bg-slate-950/50 {authMessage.type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-teal-500/50 text-teal-300'}">
-          {authMessage.text}
+      {#if pwdError}
+        <div class="mt-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl">
+          <p class="text-xs font-bold text-rose-400 uppercase tracking-widest">{pwdError}</p>
+        </div>
+      {:else if pwdMessage}
+        <div class="mt-4 p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl">
+          <p class="text-xs font-bold text-teal-400 uppercase tracking-widest">{pwdMessage}</p>
         </div>
       {/if}
+    </div>
 
-      <form onsubmit={handleAuth} class="flex flex-col gap-4">
-        <div class="flex flex-col gap-1">
-          <label class="text-[10px] font-bold uppercase tracking-widest text-indigo-300/70 pl-1">Pseudo Twitch</label>
-          <input
-            type="text"
-            bind:value={authPseudo}
-            placeholder="Ton pseudo..."
-            class="bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all"
-          />
+    <div class="w-full p-6 md:p-8 bg-slate-900/80 backdrop-blur-md border border-teal-500/30 rounded-3xl shadow-[0_0_20px_rgba(45,212,191,0.05)]">
+
+      <div class="flex justify-between items-center mb-8 border-b border-teal-500/20 pb-4">
+        <div>
+          <h2 class="text-sm font-black uppercase tracking-widest text-teal-300 flex items-center gap-3">
+            <div class="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></div>
+            Profil de Jeu
+          </h2>
+          <p class="text-xs text-indigo-300/60 mt-1">
+            Ces informations permettront aux autres joueurs de vous identifier.
+          </p>
         </div>
-
-        <div class="flex flex-col gap-1">
-          <label class="text-[10px] font-bold uppercase tracking-widest text-indigo-300/70 pl-1">Mot de passe (Jeu)</label>
-          <input
-            type="password"
-            bind:value={authPassword}
-            placeholder="••••••••"
-            class="bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all"
-          />
+        <div class="text-right hidden md:block">
+          <span class="text-[10px] uppercase tracking-widest text-indigo-300/40">Joueur connecté</span>
+          <p class="font-bold text-indigo-200">{userPseudo}</p>
         </div>
+      </div>
 
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        {#each criteres as crit}
+          <div class="flex flex-col gap-2">
+            <label class="text-[10px] font-black uppercase tracking-widest text-indigo-300/70 ml-1">
+              {crit.label}
+            </label>
+
+            {#if crit.type_donnee === 'boolean'}
+              <select
+                bind:value={userProfile.caracteristiques[crit.cle]}
+                class="bg-slate-950 border border-indigo-500/30 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-teal-400 transition-colors cursor-pointer"
+              >
+                <option value={null} disabled selected={userProfile.caracteristiques[crit.cle] === undefined}>Sélectionner...</option>
+                <option value={true}>Vrai</option>
+                <option value={false}>Faux</option>
+              </select>
+
+            {:else if crit.type_donnee === 'number'}
+              <input
+                type="number"
+                bind:value={userProfile.caracteristiques[crit.cle]}
+                class="bg-slate-950 border border-indigo-500/30 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-teal-400 transition-colors placeholder:text-slate-700"
+                placeholder="Ex: 1995"
+              />
+
+            {:else}
+              <input
+                type="text"
+                bind:value={userProfile.caracteristiques[crit.cle]}
+                class="bg-slate-950 border border-indigo-500/30 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-teal-400 transition-colors placeholder:text-slate-700"
+                placeholder="Votre réponse..."
+              />
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      <div class="flex flex-col items-center border-t border-teal-500/20 pt-8">
         <button
-          type="submit"
-          disabled={isAuthLoading}
-          class="mt-4 py-4 rounded-xl font-bold uppercase tracking-widest bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 hover:bg-indigo-400/30 hover:border-indigo-300 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all cursor-pointer disabled:opacity-50"
+          onclick={handleSaveProfile}
+          class="bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest text-sm px-10 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.15)] hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] hover:scale-105"
         >
-          {isAuthLoading ? 'Chargement...' : (authMode === 'login' ? 'Connexion' : 'Créer mon petit compte')}
+          Enregistrer le profil
         </button>
-      </form>
 
-      <div class="mt-6 text-center border-t border-indigo-500/20 pt-6">
-        <button
-          type="button"
-          onclick={() => { authMode = authMode === 'login' ? 'register' : 'login'; authMessage = {text: '', type: ''}; }}
-          class="text-xs text-indigo-300/50 hover:text-teal-300 uppercase tracking-widest transition-colors"
-        >
-          {authMode === 'login' ? "Pas encore de compte ? En créer un" : "Déjà enregistré ? S'identifier"}
-        </button>
+        {#if profileError}
+          <div class="mt-6 p-4 w-full text-center bg-rose-500/10 border border-rose-500/30 rounded-xl">
+            <p class="text-sm font-bold text-rose-400 uppercase tracking-widest">{profileError}</p>
+          </div>
+        {:else if profileMessage}
+          <div class="mt-6 p-4 w-full text-center bg-teal-500/10 border border-teal-500/30 rounded-xl">
+            <p class="text-sm font-bold text-teal-400 uppercase tracking-widest">{profileMessage}</p>
+          </div>
+        {/if}
       </div>
+
     </div>
 
-  {:else}
-    <div class="w-full flex items-end justify-between mb-8 border-b border-indigo-500/30 pb-4">
-      <div>
-        <h2 class="text-sm font-bold text-indigo-300/60 tracking-widest uppercase mb-1">Dossier Agent</h2>
-        <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400">
-          {pseudo}
-        </h1>
-      </div>
-      <button
-        onclick={logout}
-        class="text-xs font-bold uppercase tracking-widest text-rose-400/60 hover:text-rose-400 border border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/10 px-4 py-2 rounded-xl transition-all cursor-pointer"
-      >
-        Déconnexion
-      </button>
-    </div>
-
-    {#if profileMessage.text}
-      <div class="w-full p-4 mb-6 rounded-xl text-sm font-bold tracking-wide border backdrop-blur-sm bg-slate-950/50 text-center {profileMessage.type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-teal-500/50 text-teal-300 shadow-[0_0_15px_rgba(45,212,191,0.2)]'}">
-        {profileMessage.text}
-      </div>
-    {/if}
-
-    <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-teal-500/20 rounded-3xl shadow-[0_0_40px_rgba(45,212,191,0.05)] overflow-hidden p-6 md:p-10">
-
-      <p class="text-xs text-indigo-200/50 uppercase tracking-widest font-semibold mb-8 text-center">
-        Veuillez renseigner vos caractéristiques. Ces données serviront pour le jeu
-      </p>
-
-      {#if criteres.length === 0}
-        <div class="text-center text-indigo-300/40 italic py-10">
-          Aucun critère n'a encore été configuré par l'administrateur.
-        </div>
-      {:else}
-        <div class="flex flex-col gap-6">
-          {#each criteres as critere}
-            <div class="flex flex-col gap-2">
-              <label class="text-xs font-bold tracking-widest uppercase text-teal-300/80 pl-1">
-                {critere.label}
-              </label>
-
-              {#if critere.type_donnee === 'text'}
-                <input type="text" bind:value={userCaracs[critere.cle]} placeholder="..." class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all" />
-              {:else if critere.type_donnee === 'number'}
-                <input type="number" bind:value={userCaracs[critere.cle]} placeholder="0" class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 font-mono focus:outline-none focus:border-teal-400 transition-all" />
-              {:else if critere.type_donnee === 'boolean'}
-                <label class="flex items-center gap-4 bg-slate-950 border border-indigo-500/30 rounded-xl p-3 cursor-pointer hover:border-teal-400/50 transition-all">
-                  <input type="checkbox" bind:checked={userCaracs[critere.cle]} class="accent-teal-400 w-5 h-5 cursor-pointer" />
-                  <span class="text-indigo-200 text-sm">Oui, c'est mon cas</span>
-                </label>
-              {:else if critere.type_donnee === 'date'}
-                <input type="date" bind:value={userCaracs[critere.cle]} class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all color-scheme-dark" />
-              {:else if critere.type_donnee === 'enumeration'}
-                <select bind:value={userCaracs[critere.cle]} class="w-full bg-slate-950 border border-indigo-500/30 rounded-xl p-3 text-indigo-100 focus:outline-none focus:border-teal-400 transition-all cursor-pointer">
-                  <option value="" disabled selected>--- Sélectionnez une option ---</option>
-                  {#each critere.options || [] as option}
-                    <option value={option}>{option}</option>
-                  {/each}
-                </select>
-              {/if}
-            </div>
-          {/each}
-        </div>
-
-        <button onclick={saveProfile} disabled={isSaving} class="mt-10 w-full py-4 rounded-xl font-black uppercase tracking-widest bg-teal-500/20 text-teal-200 border border-teal-500/30 hover:bg-teal-400/30 hover:border-teal-300 hover:shadow-[0_0_25px_rgba(45,212,191,0.4)] transition-all disabled:opacity-50 cursor-pointer">
-          {isSaving ? 'Écriture en base...' : 'Sauvegarder le profil'}
-        </button>
-      {/if}
-    </div>
   {/if}
 </div>
-
-<style>
-  .color-scheme-dark { color-scheme: dark; }
-</style>

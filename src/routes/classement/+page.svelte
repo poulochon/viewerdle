@@ -73,7 +73,7 @@
       Classement
     </h1>
     <p class="text-amber-200/50 tracking-[0.3em] uppercase text-xs font-bold">
-      L'élite du réseau
+      L'élite d'internet
     </p>
   </div>
 
@@ -114,8 +114,14 @@
                 {/if}
               </div>
 
-              <div class="col-span-4 text-left font-bold text-sm truncate transition-colors {player.score === 0 ? 'text-indigo-300/40' : 'text-indigo-100 group-hover:text-amber-200'}">
-                {player.pseudo}
+              <div class="col-span-4 text-left font-bold text-sm truncate">
+                <a
+                  href="/utilisateur/{player.pseudo}"
+                  class="hover:underline hover:text-teal-300 transition-colors {player.score === 0 ? 'text-indigo-300/40' : 'text-indigo-100 group-hover:text-amber-200'}"
+                  title="Consulter le dossier agent de {player.pseudo}"
+                >
+                  {player.pseudo}
+                </a>
               </div>
 
               <div class="col-span-2 text-center font-mono font-black text-lg {player.score === 0 ? 'text-indigo-300/30' : 'text-amber-400'}">
