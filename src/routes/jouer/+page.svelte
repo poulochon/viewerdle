@@ -97,8 +97,8 @@
           });
 
         if (insertErr) {
-          // S'il y a une erreur (ex: violation de la contrainte unique parce qu'un autre agent a été plus rapide)
-          // On re-télécharge la cible que l'autre agent vient juste d'insérer.
+          // S'il y a une erreur (ex: violation de la contrainte unique parce qu'un autre Joueur a été plus rapide)
+          // On re-télécharge la cible que l'autre joueur vient juste d'insérer.
           const { data: retryData } = await supabase
             .from('historique_cibles')
             .select('id_compte, caracteristiques, profil_viewer(pseudo)')
@@ -121,7 +121,7 @@
       if (histData) {
         targetViewer = {
           id: histData.id_compte,
-          pseudo: histData.profil_viewer?.pseudo || 'Agent Mystère',
+          pseudo: histData.profil_viewer?.pseudo || 'Joueur Mystère',
           caracteristiques: histData.caracteristiques
         };
       }
@@ -222,7 +222,7 @@
 
               <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 text-center">
                 <span class="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-indigo-300/50">
-                  Agent
+                  Joueur
                 </span>
               </div>
 

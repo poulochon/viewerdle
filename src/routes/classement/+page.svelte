@@ -49,7 +49,7 @@
         }
 
         return {
-          pseudo: player.pseudo || 'Agent Inconnu',
+          pseudo: player.pseudo || 'Joueur Inconnu',
           score,
           wins,
           avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-'
@@ -92,7 +92,7 @@
 
         <div class="grid grid-cols-12 gap-4 p-6 border-b border-amber-500/20 text-[10px] font-black uppercase tracking-widest text-amber-300/50 text-center items-center">
           <div class="col-span-2 text-left pl-4">Rang</div>
-          <div class="col-span-4 text-left">Agent</div>
+          <div class="col-span-4 text-left">Joueur</div>
           <div class="col-span-2">Score</div>
           <div class="col-span-2">Victoires</div>
           <div class="col-span-2">Moy. Essais</div>
@@ -118,7 +118,7 @@
                 <a
                   href="/utilisateur/{player.pseudo}"
                   class="hover:underline hover:text-teal-300 transition-colors {player.score === 0 ? 'text-indigo-300/40' : 'text-indigo-100 group-hover:text-amber-200'}"
-                  title="Consulter le dossier agent de {player.pseudo}"
+                  title="Consulter le dossier de {player.pseudo}"
                 >
                   {player.pseudo}
                 </a>

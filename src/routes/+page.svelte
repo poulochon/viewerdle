@@ -10,7 +10,7 @@
   onMount(async () => {
     isLoading = true;
 
-    // Récupération du nombre d'agents (viewers) inscrits
+    // Récupération du nombre du joueur (viewers) inscrits
     const { count: playersCount } = await supabase
       .from('profil_viewer')
       .select('*', { count: 'exact', head: true });

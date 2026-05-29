@@ -166,7 +166,7 @@
 
       <div class="flex gap-4 mt-3">
         <p class="text-indigo-300/50 uppercase tracking-[0.3em] text-xs font-bold">
-          ID Agent: {userProfile.id.split('-')[0]}
+          ID Joueur: {userProfile.id.split('-')[0]}
         </p>
         <span class="text-indigo-300/20">•</span>
         <p class="text-teal-300/70 uppercase tracking-[0.3em] text-xs font-bold">
