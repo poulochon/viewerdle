@@ -50,145 +50,150 @@
     }
   });
 
-  async function initGame() {
-    const today = new Date().toISOString().split('T')[0];
-
-    // 1. Récupération des critères de jeu
-    const { data: critData, error: critErr } = await supabase
-      .from('config_caracteristiques')
-      .select('*')
-      .eq('actif', true)
-      .order('ordre', { ascending: true });
-
-    if (critErr) throw critErr;
-    criteres = critData ? critData.slice(0, 5) : [];
-
-    // ==========================================
-    // 2. GESTION DU SNAPSHOT QUOTIDIEN
-    // ==========================================
-
-    // On regarde si on a déjà figé les viewers pour aujourd'hui
-    let { data: dailySnapshots, error: snapErr } = await supabase
-      .from('joueur_daily_caracteristique')
-      .select('id_compte, pseudo, caracteristiques')
-      .eq('date_jour', today);
-
-    // S'il n'y a pas de snapshot, on le crée !
-    if (!dailySnapshots || dailySnapshots.length === 0) {
-      console.log("Premier chargement du jour : Génération du Snapshot global...");
-
-      const { data: liveViewers } = await supabase
-        .from('profil_viewer')
-        .select('id, pseudo, caracteristiques');
-
-      if (liveViewers && liveViewers.length > 0) {
-        const payload = liveViewers.map(v => ({
-          date_jour: today,
-          id_compte: v.id,
-          pseudo: v.pseudo,
-          caracteristiques: v.caracteristiques || {}
-        }));
-
-        const { error: insertSnapErr } = await supabase
-          .from('joueur_daily_caracteristique')
-          .insert(payload);
-
-        if (insertSnapErr) {
-          // Si collision (un autre joueur l'a fait 1 ms avant), on récupère les siens
-          const { data: retrySnapshots } = await supabase
-            .from('joueur_daily_caracteristique')
-            .select('id_compte, pseudo, caracteristiques')
-            .eq('date_jour', today);
-          dailySnapshots = retrySnapshots || [];
-        } else {
-          dailySnapshots = payload;
-        }
-      } else {
-        dailySnapshots = [];
-      }
+  // NOUVEAU : Fonction utilitaire pour avoir YYYY-MM-DD en heure LOCALE
+    function getLocalToday() {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
 
-    // On peuple allViewers EXCLUSIVEMENT avec les données figées
-    allViewers = dailySnapshots.map((v: any) => ({
-      id: v.id_compte,
-      pseudo: v.pseudo,
-      caracteristiques: v.caracteristiques
-    }));
+    async function initGame() {
+      const today = getLocalToday(); // <-- CORRIGÉ ICI
 
-    // ==========================================
-    // 3. GESTION DE LA CIBLE DU JOUR
-    // ==========================================
+      // 1. Récupération des critères de jeu
+      const { data: critData, error: critErr } = await supabase
+        .from('config_caracteristiques')
+        .select('*')
+        .eq('actif', true)
+        .order('ordre', { ascending: true });
 
-    let { data: histData } = await supabase
-      .from('historique_cibles')
-      .select('id_compte, caracteristiques')
-      .eq('date_cible', today)
-      .eq('type_jeu', 'viewerdl')
-      .maybeSingle();
+      if (critErr) throw critErr;
+      criteres = critData ? critData.slice(0, 5) : [];
 
-    // S'il n'y a pas de cible, on en pioche une DANS LE SNAPSHOT
-    if (!histData && allViewers.length > 0) {
-      console.log("Initialisation de la cible du jour...");
+      // ==========================================
+      // 2. GESTION DU SNAPSHOT QUOTIDIEN
+      // ==========================================
 
-      const randomIndex = Math.floor(Math.random() * allViewers.length);
-      const randomTarget = allViewers[randomIndex];
+      // On regarde si on a déjà figé les viewers pour aujourd'hui
+      let { data: dailySnapshots, error: snapErr } = await supabase
+        .from('joueur_daily_caracteristique')
+        .select('id_compte, pseudo, caracteristiques')
+        .eq('date_jour', today);
 
-      const { error: insertErr } = await supabase
+      // S'il n'y a pas de snapshot, on le crée !
+      if (!dailySnapshots || dailySnapshots.length === 0) {
+        console.log("Premier chargement du jour : Génération du Snapshot global...");
+
+        const { data: liveViewers } = await supabase
+          .from('profil_viewer')
+          .select('id, pseudo, caracteristiques');
+
+        if (liveViewers && liveViewers.length > 0) {
+          const payload = liveViewers.map(v => ({
+            date_jour: today,
+            id_compte: v.id,
+            pseudo: v.pseudo,
+            caracteristiques: v.caracteristiques || {}
+          }));
+
+          const { error: insertSnapErr } = await supabase
+            .from('joueur_daily_caracteristique')
+            .insert(payload);
+
+          if (insertSnapErr) {
+            const { data: retrySnapshots } = await supabase
+              .from('joueur_daily_caracteristique')
+              .select('id_compte, pseudo, caracteristiques')
+              .eq('date_jour', today);
+            dailySnapshots = retrySnapshots || [];
+          } else {
+            dailySnapshots = payload;
+          }
+        } else {
+          dailySnapshots = [];
+        }
+      }
+
+      allViewers = dailySnapshots.map((v: any) => ({
+        id: v.id_compte,
+        pseudo: v.pseudo,
+        caracteristiques: v.caracteristiques
+      }));
+
+      // ==========================================
+      // 3. GESTION DE LA CIBLE DU JOUR
+      // ==========================================
+
+      let { data: histData } = await supabase
         .from('historique_cibles')
-        .insert({
-          date_cible: today,
-          id_compte: randomTarget.id,
-          type_jeu: 'viewerdl',
-          caracteristiques: randomTarget.caracteristiques
-        });
+        .select('id_compte, caracteristiques')
+        .eq('date_cible', today)
+        .eq('type_jeu', 'viewerdl')
+        .maybeSingle();
 
-      if (insertErr) {
-        // En cas de collision, on récupère la cible de l'autre joueur
-        const { data: retryData } = await supabase
+      if (!histData && allViewers.length > 0) {
+        console.log("Initialisation de la cible du jour...");
+
+        const randomIndex = Math.floor(Math.random() * allViewers.length);
+        const randomTarget = allViewers[randomIndex];
+
+        const { error: insertErr } = await supabase
           .from('historique_cibles')
-          .select('id_compte, caracteristiques')
-          .eq('date_cible', today)
-          .eq('type_jeu', 'viewerdl')
-          .maybeSingle();
-        histData = retryData;
-      } else {
-        histData = {
-          id_compte: randomTarget.id,
-          caracteristiques: randomTarget.caracteristiques
+          .insert({
+            date_cible: today,
+            id_compte: randomTarget.id,
+            type_jeu: 'viewerdl',
+            caracteristiques: randomTarget.caracteristiques
+          });
+
+        if (insertErr) {
+          const { data: retryData } = await supabase
+            .from('historique_cibles')
+            .select('id_compte, caracteristiques')
+            .eq('date_cible', today)
+            .eq('type_jeu', 'viewerdl')
+            .maybeSingle();
+          histData = retryData;
+        } else {
+          histData = {
+            id_compte: randomTarget.id,
+            caracteristiques: randomTarget.caracteristiques
+          };
+        }
+      }
+
+      // 4. Assignation finale
+      if (histData) {
+        const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
+
+        targetViewer = {
+          id: histData.id_compte,
+          pseudo: targetSnapshot ? targetSnapshot.pseudo : 'Joueur Mystère',
+          caracteristiques: histData.caracteristiques
         };
       }
     }
 
-    // 4. Assignation finale
-    if (histData) {
-      // On va chercher son pseudo directement dans notre liste figée
-      const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
+    async function checkAlreadyPlayed() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && targetViewer) {
+        const today = getLocalToday(); // <-- CORRIGÉ ICI AUSSI
 
-      targetViewer = {
-        id: histData.id_compte,
-        pseudo: targetSnapshot ? targetSnapshot.pseudo : 'Joueur Mystère',
-        caracteristiques: histData.caracteristiques
-      };
-    }
-  }
+        const { data } = await supabase
+          .from('historique')
+          .select('tentatives')
+          .eq('id_compte', session.user.id)
+          .eq('date_partie', today)
+          .maybeSingle();
 
-  async function checkAlreadyPlayed() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session && targetViewer) {
-      const today = new Date().toISOString().split('T')[0];
-      const { data } = await supabase
-        .from('historique')
-        .select('tentatives')
-        .eq('id_compte', session.user.id)
-        .eq('date_partie', today)
-        .maybeSingle();
-
-      if (data) {
-        hasWon = true;
-        victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+        if (data) {
+          hasWon = true;
+          victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+        }
       }
     }
-  }
 
   async function handleGuess(viewer: any) {
     searchQuery = '';
