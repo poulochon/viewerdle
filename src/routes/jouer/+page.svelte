@@ -51,81 +51,126 @@
   });
 
   async function initGame() {
-      const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
 
-      // 1. Récupération des critères de jeu
-      const { data: critData, error: critErr } = await supabase
-        .from('config_caracteristiques')
-        .select('*')
-        .eq('actif', true)
-        .order('ordre', { ascending: true });
+    // 1. Récupération des critères de jeu
+    const { data: critData, error: critErr } = await supabase
+      .from('config_caracteristiques')
+      .select('*')
+      .eq('actif', true)
+      .order('ordre', { ascending: true });
 
-      if (critErr) throw critErr;
-      criteres = critData ? critData.slice(0, 5) : [];
+    if (critErr) throw critErr;
+    criteres = critData ? critData.slice(0, 5) : [];
 
-      // 2. Récupération des viewers
-      const { data: viewersData } = await supabase
+    // ==========================================
+    // 2. GESTION DU SNAPSHOT QUOTIDIEN
+    // ==========================================
+
+    // On regarde si on a déjà figé les viewers pour aujourd'hui
+    let { data: dailySnapshots, error: snapErr } = await supabase
+      .from('joueur_daily_caracteristique')
+      .select('id_compte, pseudo, caracteristiques')
+      .eq('date_jour', today);
+
+    // S'il n'y a pas de snapshot, on le crée !
+    if (!dailySnapshots || dailySnapshots.length === 0) {
+      console.log("Premier chargement du jour : Génération du Snapshot global...");
+
+      const { data: liveViewers } = await supabase
         .from('profil_viewer')
         .select('id, pseudo, caracteristiques');
 
-      if (viewersData) allViewers = viewersData;
+      if (liveViewers && liveViewers.length > 0) {
+        const payload = liveViewers.map(v => ({
+          date_jour: today,
+          id_compte: v.id,
+          pseudo: v.pseudo,
+          caracteristiques: v.caracteristiques || {}
+        }));
 
-      // 3. Récupération du Snapshot figé de la cible du jour
-      let { data: histData } = await supabase
-        .from('historique_cibles')
-        .select('id_compte, caracteristiques, profil_viewer(pseudo)')
-        .eq('date_cible', today)
-        .eq('type_jeu', 'viewerdl')
-        .maybeSingle();
+        const { error: insertSnapErr } = await supabase
+          .from('joueur_daily_caracteristique')
+          .insert(payload);
 
-      // 4. GÉNÉRATION "JUST-IN-TIME" si aucune cible n'existe
-      if (!histData && allViewers.length > 0) {
-        console.log("Initialisation de la cible du jour...");
-
-        // Tirage au sort aléatoire
-        const randomIndex = Math.floor(Math.random() * allViewers.length);
-        const randomTarget = allViewers[randomIndex];
-
-        // Tentative d'insertion en base
-        const { error: insertErr } = await supabase
-          .from('historique_cibles')
-          .insert({
-            date_cible: today,
-            id_compte: randomTarget.id,
-            type_jeu: 'viewerdl',
-            caracteristiques: randomTarget.caracteristiques
-          });
-
-        if (insertErr) {
-          // S'il y a une erreur (ex: violation de la contrainte unique parce qu'un autre Joueur a été plus rapide)
-          // On re-télécharge la cible que l'autre joueur vient juste d'insérer.
-          const { data: retryData } = await supabase
-            .from('historique_cibles')
-            .select('id_compte, caracteristiques, profil_viewer(pseudo)')
-            .eq('date_cible', today)
-            .eq('type_jeu', 'viewerdl')
-            .maybeSingle();
-
-          histData = retryData;
+        if (insertSnapErr) {
+          // Si collision (un autre joueur l'a fait 1 ms avant), on récupère les siens
+          const { data: retrySnapshots } = await supabase
+            .from('joueur_daily_caracteristique')
+            .select('id_compte, pseudo, caracteristiques')
+            .eq('date_jour', today);
+          dailySnapshots = retrySnapshots || [];
         } else {
-          // L'insertion a réussi ! On construit l'objet manuellement pour éviter une requête réseau inutile
-          histData = {
-            id_compte: randomTarget.id,
-            caracteristiques: randomTarget.caracteristiques,
-            profil_viewer: { pseudo: randomTarget.pseudo }
-          };
+          dailySnapshots = payload;
         }
+      } else {
+        dailySnapshots = [];
       }
+    }
 
-      // 5. Assignation finale
-      if (histData) {
-        targetViewer = {
-          id: histData.id_compte,
-          pseudo: histData.profil_viewer?.pseudo || 'Joueur Mystère',
-          caracteristiques: histData.caracteristiques
+    // On peuple allViewers EXCLUSIVEMENT avec les données figées
+    allViewers = dailySnapshots.map((v: any) => ({
+      id: v.id_compte,
+      pseudo: v.pseudo,
+      caracteristiques: v.caracteristiques
+    }));
+
+    // ==========================================
+    // 3. GESTION DE LA CIBLE DU JOUR
+    // ==========================================
+
+    let { data: histData } = await supabase
+      .from('historique_cibles')
+      .select('id_compte, caracteristiques')
+      .eq('date_cible', today)
+      .eq('type_jeu', 'viewerdl')
+      .maybeSingle();
+
+    // S'il n'y a pas de cible, on en pioche une DANS LE SNAPSHOT
+    if (!histData && allViewers.length > 0) {
+      console.log("Initialisation de la cible du jour...");
+
+      const randomIndex = Math.floor(Math.random() * allViewers.length);
+      const randomTarget = allViewers[randomIndex];
+
+      const { error: insertErr } = await supabase
+        .from('historique_cibles')
+        .insert({
+          date_cible: today,
+          id_compte: randomTarget.id,
+          type_jeu: 'viewerdl',
+          caracteristiques: randomTarget.caracteristiques
+        });
+
+      if (insertErr) {
+        // En cas de collision, on récupère la cible de l'autre joueur
+        const { data: retryData } = await supabase
+          .from('historique_cibles')
+          .select('id_compte, caracteristiques')
+          .eq('date_cible', today)
+          .eq('type_jeu', 'viewerdl')
+          .maybeSingle();
+        histData = retryData;
+      } else {
+        histData = {
+          id_compte: randomTarget.id,
+          caracteristiques: randomTarget.caracteristiques
         };
       }
     }
+
+    // 4. Assignation finale
+    if (histData) {
+      // On va chercher son pseudo directement dans notre liste figée
+      const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
+
+      targetViewer = {
+        id: histData.id_compte,
+        pseudo: targetSnapshot ? targetSnapshot.pseudo : 'Joueur Mystère',
+        caracteristiques: histData.caracteristiques
+      };
+    }
+  }
 
   async function checkAlreadyPlayed() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -150,12 +195,11 @@
     showSuggestions = false;
 
     const results = criteres.map(crit => {
-      // Valeurs brutes pour la comparaison
+      // Valeurs figées
       const val = viewer.caracteristiques?.[crit.cle];
       const targetVal = targetViewer.caracteristiques?.[crit.cle];
       const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
 
-      // Traduction des booléens pour l'affichage
       let displayValue = val;
       if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
       if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
@@ -217,72 +261,62 @@
 
     <div class="flex flex-col gap-3 w-full max-w-4xl mx-auto pb-20 mt-4">
 
-          {#if guesses.length > 0}
-            <div class="flex w-full gap-1.5 md:gap-3 items-end mb-1 px-1 animate-fade-in">
+      {#if guesses.length > 0}
+        <div class="flex w-full gap-1.5 md:gap-3 items-end mb-1 px-1 animate-fade-in">
 
-              <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 text-center">
-                <span class="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-indigo-300/50">
-                  Joueur
-                </span>
-              </div>
+          <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 text-center">
+            <span class="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-indigo-300/50">
+              Joueur
+            </span>
+          </div>
 
-              {#each criteres as crit}
-                <div class="flex-1 min-w-0 flex justify-center text-center">
-                  <span class="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-teal-300/50 break-words leading-tight line-clamp-2">
-                    {crit.label}
-                  </span>
-                </div>
-              {/each}
-
-            </div>
-          {/if}
-
-          {#each guesses as guess}
-            <div class="flex w-full gap-1.5 md:gap-3 items-stretch">
-
-              <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md border border-indigo-500/30 rounded-xl p-2 md:p-4 font-black text-[10px] md:text-sm text-indigo-100 shadow-lg z-10">
-                <span class="break-words text-center line-clamp-2 leading-tight">{guess.pseudo}</span>
-              </div>
-
-              {#each guess.results as res, i}
-                <div
-                  class="flex-1 min-w-0 flex flex-col items-center justify-center p-1 md:p-3 text-center border rounded-xl shadow-lg flip-card
-                  {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}"
-                  style="animation-delay: {i * 150}ms;"
-                >
-                  <span class="text-[9px] md:text-xs font-bold text-white break-words whitespace-normal leading-tight">
-                    {res.value}
-                  </span>
-                  {#if res.hint}
-                    <span class="text-[10px] md:text-xs mt-1 animate-bounce">{res.hint}</span>
-                  {/if}
-                </div>
-              {/each}
-
+          {#each criteres as crit}
+            <div class="flex-1 min-w-0 flex justify-center text-center">
+              <span class="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-teal-300/50 break-words leading-tight line-clamp-2">
+                {crit.label}
+              </span>
             </div>
           {/each}
+
         </div>
+      {/if}
+
+      {#each guesses as guess}
+        <div class="flex w-full gap-1.5 md:gap-3 items-stretch">
+
+          <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md border border-indigo-500/30 rounded-xl p-2 md:p-4 font-black text-[10px] md:text-sm text-indigo-100 shadow-lg z-10">
+            <span class="break-words text-center line-clamp-2 leading-tight">{guess.pseudo}</span>
+          </div>
+
+          {#each guess.results as res, i}
+            <div
+              class="flex-1 min-w-0 flex flex-col items-center justify-center p-1 md:p-3 text-center border rounded-xl shadow-lg flip-card
+              {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}"
+              style="animation-delay: {i * 150}ms;"
+            >
+              <span class="text-[9px] md:text-xs font-bold text-white break-words whitespace-normal leading-tight">
+                {res.value}
+              </span>
+              {#if res.hint}
+                <span class="text-[10px] md:text-xs mt-1 animate-bounce">{res.hint}</span>
+              {/if}
+            </div>
+          {/each}
+
+        </div>
+      {/each}
+    </div>
   {/if}
 </div>
 
 <style>
-  /* Définition de l'animation de retournement (Flip 3D) */
   @keyframes flipIn {
-    0% {
-      transform: perspective(400px) rotateX(90deg);
-      opacity: 0;
-    }
-    100% {
-      transform: perspective(400px) rotateX(0deg);
-      opacity: 1;
-    }
+    0% { transform: perspective(400px) rotateX(90deg); opacity: 0; }
+    100% { transform: perspective(400px) rotateX(0deg); opacity: 1; }
   }
 
-  /* Classe appliquée à chaque case */
   .flip-card {
-    /* L'opacité à 0 empêche la case d'être visible avant le début de l'animation */
     opacity: 0;
-    /* L'animation dure 0.5s. 'forwards' permet de figer la case dans son état final (opacity 1) */
     animation: flipIn 0.5s ease-out forwards;
   }
 </style>
