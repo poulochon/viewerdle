@@ -23,7 +23,7 @@
     // 1. Vérification de la session
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      goto('/');
+      isLoading = false; // On arrête le chargement si pas de session
       return;
     }
 
@@ -131,7 +131,8 @@
       Gestion du compte et des caractéristiques
     </p>
 
-    {#if !isLoading}
+    <!-- Le bouton de déconnexion ne s'affiche que si on est connecté -->
+    {#if !isLoading && userProfile}
       <button
         onclick={handleLogout}
         class="flex items-center gap-2 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400 bg-rose-500/10 px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(244,63,94,0.1)] hover:shadow-[0_0_15px_rgba(244,63,94,0.3)]"
@@ -146,7 +147,18 @@
 
   {#if isLoading}
     <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Chargement des données du joueur...</p>
-  {:else if userProfile}
+
+  <!-- Message clair si le joueur n'est pas connecté -->
+  {:else if !userProfile}
+    <div class="text-center mt-10 p-8 bg-rose-500/10 border border-rose-500/30 rounded-3xl w-full max-w-xl shadow-[0_0_20px_rgba(244,63,94,0.1)]">
+      <h2 class="text-2xl md:text-3xl font-black text-rose-400 mb-4 uppercase tracking-widest">Accès Refusé</h2>
+      <p class="text-rose-300/70 mb-8">Vous devez être identifié sur le réseau pour accéder à cet espace privé.</p>
+      <a href="/" class="inline-block px-8 py-3 bg-rose-500/20 border border-rose-500/50 hover:bg-rose-500/30 hover:border-rose-400 text-rose-300 font-bold uppercase tracking-widest text-xs rounded-xl transition-all shadow-[0_0_10px_rgba(244,63,94,0.1)]">
+        Retourner à l'accueil
+      </a>
+    </div>
+
+  {:else}
 
     <!-- ============================================== -->
     <!-- ZONE 1 : SÉCURITÉ ET MOT DE PASSE              -->
