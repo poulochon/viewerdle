@@ -6,6 +6,7 @@
   let isLoading = $state(true);
   let userProfile = $state<any>(null);
   let userPseudo = $state('');
+  let userEmail = $state('');
   let criteres = $state<any[]>([]);
 
   // Messages de retour pour le profil
@@ -13,7 +14,7 @@
   let profileError = $state('');
 
   // Variables pour la sécurité (Mot de passe)
-  let confirmPseudo = $state('');
+  let oldPassword = $state('');
   let newPassword = $state('');
   let pwdMessage = $state('');
   let pwdError = $state('');
@@ -25,6 +26,9 @@
       goto('/');
       return;
     }
+
+    // On sauvegarde l'email pour pouvoir vérifier l'ancien mot de passe plus tard
+    userEmail = session.user.email || '';
 
     // 2. Récupération des données du joueur
     const { data: profile } = await supabase
@@ -53,29 +57,47 @@
     isLoading = false;
   });
 
+  // Fonction de Déconnexion
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    goto('/');
+  }
+
   // Fonction pour changer le mot de passe
   async function handlePasswordUpdate() {
     pwdError = '';
     pwdMessage = '';
 
-    if (confirmPseudo !== userPseudo) {
-      pwdError = "Le pseudo de confirmation est incorrect.";
+    if (!oldPassword) {
+      pwdError = "Veuillez saisir votre ancien mot de passe.";
       return;
     }
     if (newPassword.length < 6) {
-      pwdError = "Le mot de passe doit faire au moins 6 caractères.";
+      pwdError = "Le nouveau mot de passe doit faire au moins 6 caractères.";
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({
+    // 1. Vérification de l'ancien mot de passe (on tente de se reconnecter silencieusement)
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: userEmail,
+      password: oldPassword
+    });
+
+    if (verifyError) {
+      pwdError = "L'ancien mot de passe est incorrect.";
+      return;
+    }
+
+    // 2. Si l'ancien est bon, on met à jour avec le nouveau
+    const { error: updateError } = await supabase.auth.updateUser({
       password: newPassword
     });
 
-    if (error) {
-      pwdError = "Erreur système : " + error.message;
+    if (updateError) {
+      pwdError = "Erreur système : " + updateError.message;
     } else {
       pwdMessage = "Mot de passe modifié avec succès !";
-      confirmPseudo = '';
+      oldPassword = '';
       newPassword = '';
     }
   }
@@ -98,7 +120,22 @@
   }
 </script>
 
-<div class="w-full max-w-4xl mx-auto p-4 md:p-10 flex flex-col items-center animate-fade-in pb-20 text-white">
+<div class="w-full max-w-4xl mx-auto p-4 md:p-10 flex flex-col items-center animate-fade-in pb-20 text-white relative">
+
+  <!-- NOUVEAU : Bouton de déconnexion en haut à droite -->
+  {#if !isLoading}
+    <div class="w-full flex justify-end mb-4 md:absolute md:top-10 md:right-10 md:mb-0 z-10">
+      <button
+        onclick={handleLogout}
+        class="flex items-center gap-2 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400 bg-rose-500/10 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(244,63,94,0.1)] hover:shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Déconnexion
+      </button>
+    </div>
+  {/if}
 
   <div class="text-center mb-12">
     <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2 drop-shadow-md">
@@ -110,9 +147,12 @@
   </div>
 
   {#if isLoading}
-    <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Chargement des données du viewer...</p>
+    <p class="text-teal-300 animate-pulse uppercase tracking-widest mt-10">Chargement des données du joueur...</p>
   {:else if userProfile}
 
+    <!-- ============================================== -->
+    <!-- ZONE 1 : SÉCURITÉ ET MOT DE PASSE              -->
+    <!-- ============================================== -->
     <div class="w-full mb-10 p-6 md:p-8 bg-slate-900/80 backdrop-blur-md border border-rose-500/30 rounded-3xl shadow-[0_0_20px_rgba(244,63,94,0.1)]">
       <h2 class="text-xs font-black uppercase tracking-widest text-rose-300/70 mb-6 flex items-center gap-2">
         <div class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
@@ -121,9 +161,9 @@
 
       <div class="flex flex-col md:flex-row gap-4 items-stretch">
         <input
-          type="text"
-          bind:value={confirmPseudo}
-          placeholder="Confirmez votre Pseudo"
+          type="password"
+          bind:value={oldPassword}
+          placeholder="Ancien mot de passe"
           class="flex-1 bg-slate-950 border border-rose-500/30 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-rose-400 placeholder:text-slate-600 transition-colors"
         />
         <input
@@ -151,6 +191,9 @@
       {/if}
     </div>
 
+    <!-- ============================================== -->
+    <!-- ZONE 2 : CARACTÉRISTIQUES DU VIEWER            -->
+    <!-- ============================================== -->
     <div class="w-full p-6 md:p-8 bg-slate-900/80 backdrop-blur-md border border-teal-500/30 rounded-3xl shadow-[0_0_20px_rgba(45,212,191,0.05)]">
 
       <div class="flex justify-between items-center mb-8 border-b border-teal-500/20 pb-4">
@@ -185,7 +228,6 @@
                 <option value={true}>Vrai</option>
                 <option value={false}>Faux</option>
               </select>
-
             {:else if crit.type_donnee === 'number'}
               <input
                 type="number"
@@ -193,7 +235,6 @@
                 class="bg-slate-950 border border-indigo-500/30 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-teal-400 transition-colors placeholder:text-slate-700"
                 placeholder="Ex: 1995"
               />
-
             {:else}
               <input
                 type="text"
