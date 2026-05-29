@@ -7,11 +7,12 @@
   let isLoading = $state(true);
   let isSaving = $state(false);
   let message = $state({ text: '', type: '' });
-  let activeTab = $state<'criteres' | 'rangs' | 'enums'>('criteres');
+  let activeTab = $state<'criteres' | 'rangs' | 'enums' | 'messages'>('criteres');
 
   // Tableaux de données
   let criteres = $state<any[]>([]);
   let ranks = $state<any[]>([]);
+  let inboxMessages = $state<any[]>([]); // NOUVEAU : Tableau des messages
 
   // Paniers de suppression
   let criteresToDelete = $state<string[]>([]);
@@ -49,9 +50,11 @@
     ranksToDelete = [];
     optionInputs = {};
 
-    const [criteresReq, ranksReq] = await Promise.all([
+    // NOUVEAU : On ajoute la requête pour la messagerie
+    const [criteresReq, ranksReq, messagesReq] = await Promise.all([
       supabase.from('config_caracteristiques').select('*').order('ordre', { ascending: true }),
-      supabase.from('rank').select('*').order('nombre_points', { ascending: true })
+      supabase.from('rank').select('*').order('nombre_points', { ascending: true }),
+      supabase.from('messagerie').select('*').order('id', { ascending: false }) // Du plus récent au plus ancien
     ]);
 
     // On s'assure que la colonne "options" est bien un tableau (pour les anciens critères)
@@ -62,6 +65,7 @@
       }));
     }
     if (ranksReq.data) ranks = ranksReq.data;
+    if (messagesReq.data) inboxMessages = messagesReq.data; // Remplissage de la boîte de réception
 
     isLoading = false;
   }
@@ -74,7 +78,7 @@
       type_donnee: 'text',
       ordre: criteres.length + 1,
       actif: true,
-      options: [] // Initialisation du tableau d'options
+      options: []
     }];
   }
 
@@ -86,22 +90,17 @@
     criteres = criteres.filter((_, i) => i !== index);
   }
 
-  // Ajouter un choix à une énumération
   function addOption(critereIndex: number) {
     const newVal = optionInputs[critereIndex]?.trim();
     if (newVal) {
-      // On s'assure que le tableau existe, puis on ajoute la valeur
       if (!criteres[critereIndex].options) criteres[critereIndex].options = [];
-
-      // Évite les doublons
       if (!criteres[critereIndex].options.includes(newVal)) {
         criteres[critereIndex].options = [...criteres[critereIndex].options, newVal];
       }
-      optionInputs[critereIndex] = ''; // On vide l'input
+      optionInputs[critereIndex] = '';
     }
   }
 
-  // Supprimer un choix d'une énumération
   function removeOption(critereIndex: number, optionIndex: number) {
     criteres[critereIndex].options = criteres[critereIndex].options.filter((_, i) => i !== optionIndex);
   }
@@ -119,7 +118,6 @@
     }
 
     const dataToSave = criteres.filter(c => c.cle.trim() !== '' && c.label.trim() !== '');
-
     const { error: upsertError } = await supabase.from('config_caracteristiques').upsert(dataToSave);
 
     if (upsertError) {
@@ -172,6 +170,21 @@
     await fetchData();
     isSaving = false;
   }
+
+  // --- LOGIQUE : MESSAGERIE ---
+  async function deleteMessage(id: number) {
+    if (!confirm("Voulez-vous vraiment supprimer ce message définitivement ?")) return;
+
+    const { error } = await supabase.from('messagerie').delete().eq('id', id);
+
+    if (error) {
+      message = { text: "Erreur lors de la suppression : " + error.message, type: 'error' };
+    } else {
+      inboxMessages = inboxMessages.filter(m => m.id !== id);
+      message = { text: "Message supprimé avec succès.", type: 'success' };
+    }
+  }
+
 </script>
 
 <div class="w-full max-w-5xl mx-auto flex flex-col items-center animate-fade-in z-20 pb-20">
@@ -193,24 +206,33 @@
   {:else}
     <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-rose-500/30 rounded-3xl shadow-[0_0_40px_rgba(244,63,94,0.1)] overflow-hidden">
 
-      <div class="flex flex-col md:flex-row border-b border-rose-500/20">
+      <div class="grid grid-cols-2 md:grid-cols-4 border-b border-rose-500/20">
         <button
           onclick={() => { activeTab = 'criteres'; message = {text: '', type: ''}; }}
-          class={`flex-1 py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'criteres' ? 'text-teal-300 bg-rose-500/10 border-b-2 border-teal-400 shadow-[inset_0_-10px_20px_-10px_rgba(45,212,191,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
+          class={`py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'criteres' ? 'text-teal-300 bg-rose-500/10 border-b-2 border-teal-400 shadow-[inset_0_-10px_20px_-10px_rgba(45,212,191,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
         >
           Critères
         </button>
         <button
           onclick={() => { activeTab = 'enums'; message = {text: '', type: ''}; }}
-          class={`flex-1 py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'enums' ? 'text-amber-300 bg-rose-500/10 border-b-2 border-amber-400 shadow-[inset_0_-10px_20px_-10px_rgba(251,191,36,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
+          class={`py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'enums' ? 'text-amber-300 bg-rose-500/10 border-b-2 border-amber-400 shadow-[inset_0_-10px_20px_-10px_rgba(251,191,36,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
         >
           Énumérations
         </button>
         <button
           onclick={() => { activeTab = 'rangs'; message = {text: '', type: ''}; }}
-          class={`flex-1 py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'rangs' ? 'text-fuchsia-300 bg-rose-500/10 border-b-2 border-fuchsia-400 shadow-[inset_0_-10px_20px_-10px_rgba(217,70,239,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
+          class={`py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'rangs' ? 'text-fuchsia-300 bg-rose-500/10 border-b-2 border-fuchsia-400 shadow-[inset_0_-10px_20px_-10px_rgba(217,70,239,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
         >
           Rangs
+        </button>
+        <button
+          onclick={() => { activeTab = 'messages'; message = {text: '', type: ''}; }}
+          class={`py-4 text-xs md:text-sm font-bold uppercase tracking-wider transition-all ${activeTab === 'messages' ? 'text-cyan-300 bg-rose-500/10 border-b-2 border-cyan-400 shadow-[inset_0_-10px_20px_-10px_rgba(34,211,238,0.3)]' : 'text-indigo-300/50 hover:text-rose-300 hover:bg-rose-500/5'}`}
+        >
+          Messagerie
+          {#if inboxMessages.length > 0}
+            <span class="ml-2 bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full text-[10px] font-black">{inboxMessages.length}</span>
+          {/if}
         </button>
       </div>
 
@@ -279,7 +301,7 @@
                   {#each critere.options || [] as option, optIndex}
                     <div class="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-100 px-3 py-1.5 rounded-full text-sm font-medium group">
                       {option}
-                      <button onclick={() => removeOption(index, optIndex)} class="text-amber-400/50 hover:text-rose-400 transition-colors">
+                      <button onclick={() => removeOption(index, optIndex)} class="text-amber-400/50 hover:text-rose-400 transition-colors cursor-pointer">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
@@ -298,7 +320,7 @@
                   />
                   <button
                     onclick={() => addOption(index)}
-                    class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold px-5 rounded-xl border border-amber-500/30 transition-colors"
+                    class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold px-5 rounded-xl border border-amber-500/30 transition-colors cursor-pointer"
                   >
                     Ajouter
                   </button>
@@ -310,7 +332,6 @@
           <button onclick={saveCriteres} disabled={isSaving} class="mt-4 w-full py-4 rounded-xl font-bold uppercase tracking-widest bg-amber-500/20 text-amber-200 border border-amber-500/30 hover:bg-amber-400/30 transition-all cursor-pointer">
             {isSaving ? 'Synchronisation BDD...' : 'Sauvegarder les choix'}
           </button>
-
         </div>
       {/if}
 
@@ -320,11 +341,59 @@
             <div class="grid grid-cols-12 gap-4 items-center bg-slate-950/50 p-3 rounded-xl border border-indigo-500/20">
               <input type="text" bind:value={rank.nom_rang} placeholder="Ex: Diamant" class="col-span-7 bg-transparent text-indigo-100 focus:outline-none focus:text-fuchsia-200 font-bold px-2"/>
               <input type="number" bind:value={rank.nombre_points} placeholder="0" class="col-span-4 bg-slate-900 border border-indigo-500/20 rounded p-2 text-center text-indigo-100 font-mono focus:outline-none focus:border-fuchsia-400/50"/>
-              <button onclick={() => removeRank(index)} class="col-span-1 flex justify-center text-rose-400/50 hover:text-rose-400">✕</button>
+              <button onclick={() => removeRank(index)} class="col-span-1 flex justify-center text-rose-400/50 hover:text-rose-400 cursor-pointer">✕</button>
             </div>
           {/each}
-          <button onclick={addRank} class="w-full py-4 mt-2 border border-dashed border-indigo-500/30 text-indigo-300/70 hover:text-fuchsia-300 hover:bg-fuchsia-500/5 rounded-xl font-bold uppercase text-xs">+ Nouveau grade</button>
+          <button onclick={addRank} class="w-full py-4 mt-2 border border-dashed border-indigo-500/30 text-indigo-300/70 hover:text-fuchsia-300 hover:bg-fuchsia-500/5 rounded-xl font-bold uppercase text-xs cursor-pointer">+ Nouveau grade</button>
           <button onclick={saveRanks} disabled={isSaving} class="mt-8 w-full py-4 rounded-xl font-bold uppercase tracking-widest bg-fuchsia-500/20 text-fuchsia-200 border border-fuchsia-500/30 hover:bg-fuchsia-400/30 cursor-pointer">Sauvegarder le classement</button>
+        </div>
+      {/if}
+
+      {#if activeTab === 'messages'}
+        <div class="p-6 md:p-8 flex flex-col gap-4 animate-fade-in">
+
+          {#if inboxMessages.length === 0}
+            <div class="py-12 flex flex-col items-center justify-center border border-dashed border-indigo-500/30 rounded-2xl bg-slate-950/30">
+              <span class="text-4xl mb-4">📭</span>
+              <p class="text-indigo-300/50 uppercase tracking-widest text-sm font-bold text-center">
+                Aucun message en attente.<br/>Le réseau est silencieux.
+              </p>
+            </div>
+          {:else}
+            <p class="text-xs text-indigo-300/60 uppercase tracking-widest font-bold mb-2">
+              Messages des utilisateurs ({inboxMessages.length})
+            </p>
+
+            <div class="flex flex-col gap-4">
+              {#each inboxMessages as msg}
+                <div class="bg-slate-950/50 p-5 rounded-2xl border border-cyan-500/20 hover:border-cyan-500/50 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4 group">
+
+                  <div class="flex-1 flex flex-col gap-2 w-full">
+                    <div class="flex items-center gap-3">
+                      <span class="bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-widest">
+                        Ticket #{msg.id}
+                      </span>
+                    </div>
+                    <p class="text-indigo-100 text-sm md:text-base leading-relaxed whitespace-pre-wrap pl-1">
+                      {msg.contenu}
+                    </p>
+                  </div>
+
+                  <button
+                    onclick={() => deleteMessage(msg.id)}
+                    class="self-end md:self-auto flex items-center justify-center p-3 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer group-hover:opacity-100 md:opacity-50"
+                    title="Supprimer ce message"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+
+                </div>
+              {/each}
+            </div>
+          {/if}
+
         </div>
       {/if}
 
