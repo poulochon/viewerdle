@@ -120,30 +120,28 @@
   }
 </script>
 
-<div class="w-full max-w-4xl mx-auto p-4 md:p-10 flex flex-col items-center animate-fade-in pb-20 text-white relative">
+<div class="w-full max-w-4xl mx-auto p-4 md:p-10 flex flex-col items-center animate-fade-in pb-20 text-white">
 
-  <!-- NOUVEAU : Bouton de déconnexion en haut à droite -->
-  {#if !isLoading}
-    <div class="w-full flex justify-end mb-4 md:absolute md:top-10 md:right-10 md:mb-0 z-10">
+  <!-- En-tête centré avec le bouton de déconnexion intégré -->
+  <div class="text-center mb-12 flex flex-col items-center">
+    <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2 drop-shadow-md">
+      Mon Espace Joueur
+    </h1>
+    <p class="text-indigo-300/50 uppercase tracking-[0.3em] text-xs font-bold mb-6">
+      Gestion du compte et des caractéristiques
+    </p>
+
+    {#if !isLoading}
       <button
         onclick={handleLogout}
-        class="flex items-center gap-2 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400 bg-rose-500/10 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(244,63,94,0.1)] hover:shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+        class="flex items-center gap-2 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400 bg-rose-500/10 px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(244,63,94,0.1)] hover:shadow-[0_0_15px_rgba(244,63,94,0.3)]"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
         </svg>
         Déconnexion
       </button>
-    </div>
-  {/if}
-
-  <div class="text-center mb-12">
-    <h1 class="text-4xl md:text-5xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-indigo-400 mb-2 drop-shadow-md">
-      Mon Espace Joueur
-    </h1>
-    <p class="text-indigo-300/50 uppercase tracking-[0.3em] text-xs font-bold">
-      Gestion du compte et des caractéristiques
-    </p>
+    {/if}
   </div>
 
   {#if isLoading}
