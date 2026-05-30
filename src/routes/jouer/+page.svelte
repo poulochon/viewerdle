@@ -70,7 +70,7 @@
         .order('ordre', { ascending: true });
 
       if (critErr) throw critErr;
-      criteres = critData ? critData.slice(0, 5) : [];
+      criteres = critData ? critData : [];
 
       // ==========================================
       // 2. GESTION DU SNAPSHOT QUOTIDIEN
@@ -122,6 +122,8 @@
         caracteristiques: v.caracteristiques
       }));
 
+      console.log(allViewers);
+
       // ==========================================
       // 3. GESTION DE LA CIBLE DU JOUR
       // ==========================================
@@ -167,7 +169,7 @@
       // 4. Assignation finale
       if (histData) {
         const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
-
+        console.log(targetSnapshot);
         targetViewer = {
           id: histData.id_compte,
           pseudo: targetSnapshot ? targetSnapshot.pseudo : 'Joueur Mystère',
