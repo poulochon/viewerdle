@@ -7,61 +7,90 @@
   let stats = $state({ totalPlayers: 0, totalGames: 0 });
   let authMessage = $state(''); // Message d'erreur d'authentification
 
-  // NOUVEAU : Variables pour la messagerie
+  // Variables pour la messagerie
   let messageContent = $state('');
   let isSubmittingMessage = $state(false);
   let messageStatus = $state({ text: '', type: '' });
 
-  onMount(async () => {
+  onMount(() => {
+    // Variable de contrôle pour savoir si on est toujours sur la page
+    let isMounted = true;
     isLoading = true;
 
-    // Récupération du nombre du joueur (viewers) inscrits
-    const { count: playersCount } = await supabase
-      .from('profil_viewer')
-      .select('*', { count: 'exact', head: true });
+    const fetchStats = async () => {
+      try {
+        // Chrono de sécurité de 3 secondes
+        const timeoutPromise = new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout Supabase")), 3000)
+        );
 
-    // Récupération du nombre total de parties enregistrées
-    const { count: gamesCount } = await supabase
-      .from('historique')
-      .select('*', { count: 'exact', head: true });
+        // Les deux requêtes groupées
+        const dbRequests = Promise.all([
+          supabase.from('profil_viewer').select('*', { count: 'exact', head: true }),
+          supabase.from('historique').select('*', { count: 'exact', head: true })
+        ]);
 
-    stats = {
-      totalPlayers: playersCount || 0,
-      totalGames: gamesCount || 0
+        // Course entre la base de données et le chrono
+        const [playersReq, gamesReq] = await Promise.race([dbRequests, timeoutPromise]);
+
+        // On ne met à jour l'affichage que si la page n'a pas été quittée entre temps
+        if (isMounted) {
+          stats = {
+            totalPlayers: playersReq.count || 0,
+            totalGames: gamesReq.count || 0
+          };
+        }
+      } catch (error) {
+        console.warn("Délai d'attente dépassé ou erreur réseau :", error);
+      } finally {
+        // Le GARDE-FOU : On libère l'écran quoi qu'il arrive
+        if (isMounted) isLoading = false;
+      }
     };
 
-    isLoading = false;
+    fetchStats();
+
+    // NETTOYAGE à la destruction de la page (quand on change d'onglet/page)
+    return () => {
+      isMounted = false;
+    };
   });
 
-  // Fonction de vérification avant d'accéder au jeu
+  // Fonction de vérification avant d'accéder au jeu (Sécurisée)
   async function handlePlayClick() {
     authMessage = '';
 
-    // 1. Vérification de la connexion
-    const { data: { session } } = await supabase.auth.getSession();
+    try {
+      // 1. Vérification de la connexion avec chrono pour éviter le freeze au clic
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+      const sessionPromise = supabase.auth.getSession();
 
-    if (!session) {
-      authMessage = "Veuillez d'abord vous identifier pour accéder au jeu.";
-      return;
+      const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+
+      if (!session) {
+        authMessage = "Veuillez d'abord vous identifier pour accéder au jeu.";
+        return;
+      }
+
+      // 2. Vérification des droits
+      const rolePromise = supabase.from('viewer_droit').select('id_droit').eq('id_viewer', session.user.id).in('id_droit', [1, 3]);
+      const { data: roleCheck } = await Promise.race([rolePromise, timeoutPromise]);
+
+      if (!roleCheck || roleCheck.length === 0) {
+        authMessage = "Accès refusé : Votre niveau d'accréditation est insuffisant.";
+        return;
+      }
+
+      // Si tout est bon, on l'envoie sur le jeu
+      goto('/jouer');
+
+    } catch (error) {
+      console.warn("Erreur lors de la vérification :", error);
+      authMessage = "Le réseau est instable. Veuillez réessayer.";
     }
-
-    // 2. Vérification des droits (Rôles 1 et 3 autorisés)
-    const { data: roleCheck } = await supabase
-      .from('viewer_droit')
-      .select('id_droit')
-      .eq('id_viewer', session.user.id)
-      .in('id_droit', [1, 3]);
-
-    if (!roleCheck || roleCheck.length === 0) {
-      authMessage = "Accès refusé : Votre niveau d'accréditation est insuffisant.";
-      return;
-    }
-
-    // Si tout est bon, on l'envoie sur le jeu
-    goto('/jouer');
   }
 
-  // NOUVEAU : Fonction pour envoyer le message
+  // Fonction pour envoyer le message (Sécurisée avec un finally)
   async function handleSendMessage(e: Event) {
     e.preventDefault();
     messageStatus = { text: '', type: '' };
@@ -73,18 +102,22 @@
 
     isSubmittingMessage = true;
 
-    const { error } = await supabase
-      .from('messagerie')
-      .insert({ contenu: messageContent.trim() });
+    try {
+      const { error } = await supabase
+        .from('messagerie')
+        .insert({ contenu: messageContent.trim() });
 
-    if (error) {
-      messageStatus = { text: "Erreur de transmission : " + error.message, type: 'error' };
-    } else {
-      messageStatus = { text: "Message transmis aux administrateurs avec succès.", type: 'success' };
-      messageContent = ''; // On vide le champ après l'envoi
+      if (error) {
+        messageStatus = { text: "Erreur de transmission : " + error.message, type: 'error' };
+      } else {
+        messageStatus = { text: "Message transmis aux administrateurs avec succès.", type: 'success' };
+        messageContent = ''; // On vide le champ après l'envoi
+      }
+    } catch (err) {
+      messageStatus = { text: "Erreur inattendue du réseau.", type: 'error' };
+    } finally {
+      isSubmittingMessage = false; // Toujours réactiver le bouton
     }
-
-    isSubmittingMessage = false;
   }
 </script>
 

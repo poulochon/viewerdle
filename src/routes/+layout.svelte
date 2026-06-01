@@ -9,19 +9,35 @@
   let profile = $state<any>(null);
   let isAdmin = $state(false);
 
+  // Sécurité anti-freeze : contrôle d'existence du composant
+  let isComponentMounted = false;
+
   // Fonction pour formater le pseudo (max 5 caractères)
   function formatPseudo(pseudo: string) {
     if (!pseudo) return '';
     return pseudo.length > 5 ? pseudo.slice(0, 5) + '..' : pseudo;
   }
 
-  onMount(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    }
+  onMount(() => {
+    isComponentMounted = true;
 
-    supabase.auth.onAuthStateChange(async (_, session) => {
+    // 1. Chargement initial de la session
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user && isComponentMounted) {
+          await fetchProfile(session.user.id);
+        }
+      } catch (error) {
+        console.warn("Erreur lors de la récupération initiale de la session :", error);
+      }
+    };
+    initSession();
+
+    // 2. Écouteur des changements de session (Connexion / Déconnexion)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
+      if (!isComponentMounted) return; // On ignore si la page est détruite
+
       if (session?.user) {
         await fetchProfile(session.user.id);
       } else {
@@ -29,43 +45,46 @@
         isAdmin = false;
       }
     });
+
+    // NETTOYAGE CRUCIAL : C'est cette ligne qui évite le gel du navigateur au réveil de l'onglet !
+    return () => {
+      isComponentMounted = false;
+      subscription.unsubscribe();
+    };
   });
 
-async function fetchProfile(userId: string) {
-    console.log("Tentative de récupération du profil pour :", userId);
+  async function fetchProfile(userId: string) {
+    if (!isComponentMounted) return;
 
-    const { data: profileData, error: profileError } = await supabase
-      .from('profil_viewer')
-      .select('pseudo')
-      .eq('id', userId)
-      .single();
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout de la barre de navigation")), 4000)
+      );
 
+      // On lance les deux requêtes en parallèle pour gagner du temps
+      const dbRequests = Promise.all([
+        supabase.from('profil_viewer').select('pseudo').eq('id', userId).maybeSingle(),
+        supabase.from('viewer_droit').select('id_droit').eq('id_viewer', userId).eq('id_droit', 1).maybeSingle()
+      ]);
 
-const { data, error } = await supabase.from('profil_viewer').select('*');
+      // Course contre le chrono
+      const [profileRes, adminRes] = await Promise.race([dbRequests, timeoutPromise]);
 
-if (error) {
-  console.error("❌ Erreur :", error);
-} else {
-  console.log("✅ Données récupérées ! Voici la table complète :");
-  console.table(data); // console.table crée un joli tableau directement dans la console !
-}
-    // Le mouchard est ici :
-    console.log("Résultat Profil:", profileData, "Erreur:", profileError);
+      if (isComponentMounted) {
+        // Mise à jour du profil
+        if (profileRes.data && !profileRes.error) {
+          profile = profileRes.data;
+        } else {
+          profile = null;
+        }
 
-    if (profileData && !profileError) {
-      profile = profileData;
+        // Mise à jour des droits Admin
+        isAdmin = !!adminRes.data;
+      }
+    } catch (error) {
+      console.warn("Délai dépassé ou erreur réseau pour le profil global :", error);
+      // En cas de timeout, on conserve le profil existant s'il y en a déjà un en mémoire
     }
-
-    const { data: adminCheck, error: adminError } = await supabase
-      .from('viewer_droit')
-      .select('id_droit')
-      .eq('id_viewer', userId)
-      .eq('id_droit', 1)
-      .maybeSingle();
-
-    console.log("Check Admin:", adminCheck, "Erreur Admin:", adminError);
-
-    isAdmin = !!adminCheck;
   }
 </script>
 

@@ -6,6 +6,9 @@
   let leaderboard = $state<any[]>([]);
   let visibleRanks = $state<any[]>([]); // Liste des rangs découverts
 
+  // Sécurité anti-freeze : contrôle d'existence du composant
+  let isComponentMounted = false;
+
   // Tableau de la suite de Fibonacci (de F0 à F10)
   const fibonacci = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
 
@@ -29,78 +32,93 @@
   const getX = (index: number) => paddingX + (index / 9) * widthX;
   const getY = (points: number) => 250 - paddingY - ((points / maxPoints) * heightY);
 
-  onMount(async () => {
+  onMount(() => {
+    isComponentMounted = true;
     isLoading = true;
 
-    // 1. Récupération des Rangs (Triés du plus grand au plus petit)
-    const { data: rankData } = await supabase
-      .from('rank')
-      .select('*')
-      .order('nombre_points', { ascending: false });
+    const loadLeaderboard = async () => {
+      try {
+        const timeoutPromise = new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout réseau chargement classement")), 4000)
+        );
 
-    const ranks = rankData || [];
+        // Groupement des deux requêtes pour aller plus vite
+        const dbRequests = Promise.all([
+          supabase.from('rank').select('*').order('nombre_points', { ascending: false }),
+          supabase.from('profil_viewer').select('pseudo, historique(victoire, tentatives)')
+        ]);
 
-    // 2. Récupération des Joueurs
-    const { data: playerData } = await supabase
-      .from('profil_viewer')
-      .select('pseudo, historique(victoire, tentatives)');
+        // Course entre la base de données et le chrono
+        const [rankReq, playerReq] = await Promise.race([dbRequests, timeoutPromise]);
 
-    if (playerData) {
-      const calculatedScores = playerData.map(player => {
-        let score = 0;
-        let wins = 0;
-        let totalTentatives = 0;
+        if (isComponentMounted) {
+          const ranks = rankReq.data || [];
+          const playerData = playerReq.data;
 
-        if (player.historique && Array.isArray(player.historique)) {
-          player.historique.forEach((game: any) => {
-            if (game.victoire === true || game.victoire === 'true') {
-              wins++;
-              const tries = Number(game.tentatives) || 0;
-              totalTentatives += tries;
+          if (playerData) {
+            const calculatedScores = playerData.map(player => {
+              let score = 0;
+              let wins = 0;
+              let totalTentatives = 0;
 
-              const index = Math.max(0, 11 - tries);
-              const fVal = fibonacci[index] || 0;
-              const points = Math.round((fVal + 2) / 2);
-              score += points;
+              if (player.historique && Array.isArray(player.historique)) {
+                player.historique.forEach((game: any) => {
+                  if (game.victoire === true || game.victoire === 'true') {
+                    wins++;
+                    const tries = Number(game.tentatives) || 0;
+                    totalTentatives += tries;
+
+                    const index = Math.max(0, 11 - tries);
+                    const fVal = fibonacci[index] || 0;
+                    const points = Math.round((fVal + 2) / 2);
+                    score += points;
+                  }
+                });
+              }
+
+              // Attribution du rang pour le joueur
+              const currentRank = ranks.find(r => score >= r.nombre_points) || ranks[ranks.length - 1] || null;
+
+              return {
+                pseudo: player.pseudo || 'Joueur Inconnu',
+                score,
+                wins,
+                avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-',
+                rankName: currentRank?.nom_rang || 'Non classé',
+                rankIcon: currentRank?.icone_url || null
+              };
+            });
+
+            // Tri du classement général
+            leaderboard = calculatedScores.sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return a.pseudo.localeCompare(b.pseudo);
+            });
+
+            // Logique de Mystère des Rangs
+            const highestScoreReached = leaderboard.length > 0 ? Math.max(...leaderboard.map(p => p.score)) : 0;
+            const highestRankReached = ranks.find(r => highestScoreReached >= r.nombre_points) || ranks[ranks.length - 1];
+
+            if (highestRankReached) {
+              visibleRanks = [...ranks]
+                .reverse()
+                .filter(r => r.nombre_points <= highestRankReached.nombre_points);
             }
-          });
+          }
         }
-
-        // Attribution du rang pour le joueur
-        const currentRank = ranks.find(r => score >= r.nombre_points) || ranks[ranks.length - 1] || null;
-
-        return {
-          pseudo: player.pseudo || 'Joueur Inconnu',
-          score,
-          wins,
-          avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-',
-          rankName: currentRank?.nom_rang || 'Non classé',
-          rankIcon: currentRank?.icone_url || null
-        };
-      });
-
-      // Tri du classement général
-      leaderboard = calculatedScores.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return a.pseudo.localeCompare(b.pseudo);
-      });
-
-      // 3. Logique de Mystère des Rangs
-      // On cherche le score le plus élevé jamais atteint parmi tous les joueurs
-      const highestScoreReached = leaderboard.length > 0 ? Math.max(...leaderboard.map(p => p.score)) : 0;
-
-      // On trouve le rang le plus élevé correspondant à ce score max
-      const highestRankReached = ranks.find(r => highestScoreReached >= r.nombre_points) || ranks[ranks.length - 1];
-
-      // On filtre la liste (inversée pour aller du plus petit au plus grand) pour s'arrêter au rang max atteint
-      if (highestRankReached) {
-        visibleRanks = [...ranks]
-          .reverse()
-          .filter(r => r.nombre_points <= highestRankReached.nombre_points);
+      } catch (error) {
+        console.warn("Erreur lors de la récupération du classement :", error);
+      } finally {
+        if (isComponentMounted) isLoading = false;
       }
-    }
+    };
 
-    isLoading = false;
+    loadLeaderboard();
+
+    // NETTOYAGE : Détruit les processus si on change de page
+    return () => {
+      isComponentMounted = false;
+    };
   });
 </script>
 

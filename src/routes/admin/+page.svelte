@@ -12,7 +12,7 @@
   // Tableaux de données
   let criteres = $state<any[]>([]);
   let ranks = $state<any[]>([]);
-  let inboxMessages = $state<any[]>([]); // NOUVEAU : Tableau des messages
+  let inboxMessages = $state<any[]>([]); // Tableau des messages
 
   // Paniers de suppression
   let criteresToDelete = $state<string[]>([]);
@@ -21,53 +21,106 @@
   // Variables temporaires pour les inputs des options d'énumération
   let optionInputs = $state<Record<number, string>>({});
 
-  // --- INITIALISATION ---
-  onMount(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      goto('/');
-      return;
-    }
+  // Sécurité anti-freeze : contrôle d'existence du composant
+  let isComponentMounted = false;
 
-    const { data: adminCheck } = await supabase
-      .from('viewer_droit')
-      .select('id_droit')
-      .eq('id_viewer', session.user.id)
-      .eq('id_droit', 1)
-      .maybeSingle();
+  // --- INITIALISATION SÉCURISÉE ---
+  onMount(() => {
+    isComponentMounted = true;
+    isLoading = true;
 
-    if (!adminCheck) {
-      goto('/');
-      return;
-    }
+    const initializeAdmin = async () => {
+      try {
+        const timeoutPromise = new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout initialisation")), 3000)
+        );
 
-    await fetchData();
+        // 1. Récupération de la session
+        const sessionPromise = supabase.auth.getSession();
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+
+        if (!session) {
+          if (isComponentMounted) goto('/');
+          return;
+        }
+
+        // 2. Vérification des droits admin
+        const adminCheckPromise = supabase
+          .from('viewer_droit')
+          .select('id_droit')
+          .eq('id_viewer', session.user.id)
+          .eq('id_droit', 1)
+          .maybeSingle();
+
+        const { data: adminCheck } = await Promise.race([adminCheckPromise, timeoutPromise]);
+
+        if (!adminCheck) {
+          if (isComponentMounted) goto('/');
+          return;
+        }
+
+        // 3. Récupération des données
+        if (isComponentMounted) {
+          await fetchData();
+        }
+
+      } catch (error) {
+        console.warn("Erreur lors de l'accès au panneau admin au réveil de l'onglet :", error);
+        if (isComponentMounted) {
+          message = { text: "Le réseau est instable. Tentative de reconnexion...", type: 'error' };
+        }
+      } finally {
+        if (isComponentMounted) isLoading = false;
+      }
+    };
+
+    initializeAdmin();
+
+    // NETTOYAGE : Coupe instantanément les processus asynchrones si on change de page
+    return () => {
+      isComponentMounted = false;
+    };
   });
 
+  // --- RÉCUPÉRATION DES DONNÉES (SÉCURISÉE) ---
   async function fetchData() {
+    if (!isComponentMounted) return;
     isLoading = true;
     criteresToDelete = [];
     ranksToDelete = [];
     optionInputs = {};
 
-    // NOUVEAU : On ajoute la requête pour la messagerie
-    const [criteresReq, ranksReq, messagesReq] = await Promise.all([
-      supabase.from('config_caracteristiques').select('*').order('ordre', { ascending: true }),
-      supabase.from('rank').select('*').order('nombre_points', { ascending: true }),
-      supabase.from('messagerie').select('*').order('id', { ascending: false }) // Du plus récent au plus ancien
-    ]);
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout chargement données")), 4000)
+      );
 
-    // On s'assure que la colonne "options" est bien un tableau (pour les anciens critères)
-    if (criteresReq.data) {
-      criteres = criteresReq.data.map(c => ({
-        ...c,
-        options: c.options || []
-      }));
+      const dbRequests = Promise.all([
+        supabase.from('config_caracteristiques').select('*').order('ordre', { ascending: true }),
+        supabase.from('rank').select('*').order('nombre_points', { ascending: true }),
+        supabase.from('messagerie').select('*').order('id', { ascending: false })
+      ]);
+
+      const [criteresReq, ranksReq, messagesReq] = await Promise.race([dbRequests, timeoutPromise]);
+
+      if (isComponentMounted) {
+        if (criteresReq.data) {
+          criteres = criteresReq.data.map(c => ({
+            ...c,
+            options: c.options || []
+          }));
+        }
+        if (ranksReq.data) ranks = ranksReq.data;
+        if (messagesReq.data) inboxMessages = messagesReq.data;
+      }
+    } catch (error) {
+      console.warn("Erreur réseau lors de la récupération des tables :", error);
+      if (isComponentMounted) {
+        message = { text: "Erreur de synchronisation avec la base de données.", type: 'error' };
+      }
+    } finally {
+      if (isComponentMounted) isLoading = false;
     }
-    if (ranksReq.data) ranks = ranksReq.data;
-    if (messagesReq.data) inboxMessages = messagesReq.data; // Remplissage de la boîte de réception
-
-    isLoading = false;
   }
 
   // --- LOGIQUE : CRITÈRES & ÉNUMÉRATIONS ---
@@ -106,27 +159,42 @@
   }
 
   async function saveCriteres() {
+    if (!isComponentMounted) return;
     isSaving = true;
     message = { text: '', type: '' };
 
-    if (criteresToDelete.length > 0) {
-      const { error: delError } = await supabase.from('config_caracteristiques').delete().in('cle', criteresToDelete);
-      if (delError) {
-        message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
-        isSaving = false; return;
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout sauvegarde critères")), 4000)
+      );
+
+      if (criteresToDelete.length > 0) {
+        const deletePromise = supabase.from('config_caracteristiques').delete().in('cle', criteresToDelete);
+        const { error: delError } = await Promise.race([deletePromise, timeoutPromise]);
+        if (delError) {
+          if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
+          return;
+        }
       }
-    }
 
-    const dataToSave = criteres.filter(c => c.cle.trim() !== '' && c.label.trim() !== '');
-    const { error: upsertError } = await supabase.from('config_caracteristiques').upsert(dataToSave);
+      const dataToSave = criteres.filter(c => c.cle.trim() !== '' && c.label.trim() !== '');
+      const upsertPromise = supabase.from('config_caracteristiques').upsert(dataToSave);
+      const { error: upsertError } = await Promise.race([upsertPromise, timeoutPromise]);
 
-    if (upsertError) {
-      message = { text: "Erreur d'enregistrement : " + upsertError.message, type: 'error' };
-    } else {
-      message = { text: "Modifications des critères déployées !", type: 'success' };
-      await fetchData();
+      if (upsertError) {
+        if (isComponentMounted) message = { text: "Erreur d'enregistrement : " + upsertError.message, type: 'error' };
+      } else {
+        if (isComponentMounted) {
+          message = { text: "Modifications des critères déployées !", type: 'success' };
+          await fetchData();
+        }
+      }
+    } catch (error) {
+      console.warn("Erreur sauvegarde critères :", error);
+      if (isComponentMounted) message = { text: "Le réseau a mis trop de temps à répondre.", type: 'error' };
+    } finally {
+      if (isComponentMounted) isSaving = false;
     }
-    isSaving = false;
   }
 
   // --- LOGIQUE : RANGS ---
@@ -141,50 +209,84 @@
   }
 
   async function saveRanks() {
+    if (!isComponentMounted) return;
     isSaving = true;
     message = { text: '', type: '' };
 
-    if (ranksToDelete.length > 0) {
-      const { error: delError } = await supabase.from('rank').delete().in('id', ranksToDelete);
-      if (delError) {
-        message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
-        isSaving = false; return;
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout sauvegarde rangs")), 4000)
+      );
+
+      if (ranksToDelete.length > 0) {
+        const deletePromise = supabase.from('rank').delete().in('id', ranksToDelete);
+        const { error: delError } = await Promise.race([deletePromise, timeoutPromise]);
+        if (delError) {
+          if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
+          return;
+        }
       }
+
+      const validRanks = ranks.filter(r => r.nom_rang.trim() !== '');
+      const ranksToUpdate = validRanks.filter(r => r.id);
+      const ranksToInsert = validRanks.filter(r => !r.id);
+
+      if (ranksToUpdate.length > 0) {
+        const upsertPromise = supabase.from('rank').upsert(ranksToUpdate);
+        const { error } = await Promise.race([upsertPromise, timeoutPromise]);
+        if (error) {
+          if (isComponentMounted) message = { text: "Erreur MAJ : " + error.message, type: 'error' };
+          return;
+        }
+      }
+
+      if (ranksToInsert.length > 0) {
+        const insertPromise = supabase.from('rank').insert(ranksToInsert);
+        const { error } = await Promise.race([insertPromise, timeoutPromise]);
+        if (error) {
+          if (isComponentMounted) message = { text: "Erreur Création : " + error.message, type: 'error' };
+          return;
+        }
+      }
+
+      if (isComponentMounted) {
+        message = { text: "Mise à jour du système de rangs effectuée !", type: 'success' };
+        await fetchData();
+      }
+    } catch (error) {
+      console.warn("Erreur sauvegarde rangs :", error);
+      if (isComponentMounted) message = { text: "Délai de transmission dépassé par le réseau.", type: 'error' };
+    } finally {
+      if (isComponentMounted) isSaving = false;
     }
-
-    const validRanks = ranks.filter(r => r.nom_rang.trim() !== '');
-    const ranksToUpdate = validRanks.filter(r => r.id);
-    const ranksToInsert = validRanks.filter(r => !r.id);
-
-    if (ranksToUpdate.length > 0) {
-      const { error } = await supabase.from('rank').upsert(ranksToUpdate);
-      if (error) { message = { text: "Erreur MAJ : " + error.message, type: 'error' }; isSaving = false; return; }
-    }
-
-    if (ranksToInsert.length > 0) {
-      const { error } = await supabase.from('rank').insert(ranksToInsert);
-      if (error) { message = { text: "Erreur Création : " + error.message, type: 'error' }; isSaving = false; return; }
-    }
-
-    message = { text: "Mise à jour du système de rangs effectuée !", type: 'success' };
-    await fetchData();
-    isSaving = false;
   }
 
   // --- LOGIQUE : MESSAGERIE ---
   async function deleteMessage(id: number) {
+    if (!isComponentMounted) return;
     if (!confirm("Voulez-vous vraiment supprimer ce message définitivement ?")) return;
 
-    const { error } = await supabase.from('messagerie').delete().eq('id', id);
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout suppression message")), 3000)
+      );
 
-    if (error) {
-      message = { text: "Erreur lors de la suppression : " + error.message, type: 'error' };
-    } else {
-      inboxMessages = inboxMessages.filter(m => m.id !== id);
-      message = { text: "Message supprimé avec succès.", type: 'success' };
+      const deletePromise = supabase.from('messagerie').delete().eq('id', id);
+      const { error } = await Promise.race([deletePromise, timeoutPromise]);
+
+      if (error) {
+        if (isComponentMounted) message = { text: "Erreur lors de la suppression : " + error.message, type: 'error' };
+      } else {
+        if (isComponentMounted) {
+          inboxMessages = inboxMessages.filter(m => m.id !== id);
+          message = { text: "Message supprimé avec succès.", type: 'success' };
+        }
+      }
+    } catch (error) {
+      console.warn("Erreur suppression message :", error);
+      if (isComponentMounted) message = { text: "Action interrompue suite à une instabilité réseau.", type: 'error' };
     }
   }
-
 </script>
 
 <div class="w-full max-w-5xl mx-auto flex flex-col items-center animate-fade-in z-20 pb-20">

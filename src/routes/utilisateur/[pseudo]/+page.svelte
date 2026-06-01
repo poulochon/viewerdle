@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { supabase } from '$lib/supabaseClient';
 
@@ -9,6 +10,9 @@
   let criteres = $state<any[]>([]);
   let history = $state<any[]>([]);
   let maxTries = $state(1);
+
+  // Sécurité anti-freeze : contrôle d'existence du composant
+  let isComponentMounted = false;
 
   // Variables pour le classement
   let userRank = $state<number | string>("-");
@@ -50,6 +54,15 @@
     return grid;
   });
 
+  onMount(() => {
+    isComponentMounted = true;
+
+    // NETTOYAGE : Détruit le statut si on change de page
+    return () => {
+      isComponentMounted = false;
+    };
+  });
+
   $effect(() => {
     if (pseudo) fetchUserProfile(pseudo);
   });
@@ -57,69 +70,82 @@
   async function fetchUserProfile(targetPseudo: string) {
     isLoading = true;
 
-    const { data: userData } = await supabase
-      .from('profil_viewer')
-      .select('id, pseudo, caracteristiques')
-      .ilike('pseudo', targetPseudo)
-      .maybeSingle();
+    try {
+      const timeoutPromise = new Promise<any>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout réseau chargement profil")), 4000)
+      );
 
-    if (!userData) {
-      userProfile = null;
-      isLoading = false;
-      return;
-    }
-    userProfile = userData;
+      // 1. Récupération du profil principal
+      const userPromise = supabase
+        .from('profil_viewer')
+        .select('id, pseudo, caracteristiques')
+        .ilike('pseudo', targetPseudo)
+        .maybeSingle();
 
-    const { data: critData } = await supabase
-      .from('config_caracteristiques')
-      .select('cle, label')
-      .eq('actif', true)
-      .order('ordre');
-    criteres = critData || [];
+      const { data: userData } = await Promise.race([userPromise, timeoutPromise]);
 
-    // Calcul global du classement
-    const { data: allUsers } = await supabase
-      .from('profil_viewer')
-      .select('id, pseudo, historique(victoire, tentatives)');
-
-    if (allUsers) {
-      const scores = allUsers.map(u => {
-        let score = 0;
-        if (u.historique && Array.isArray(u.historique)) {
-          u.historique.forEach((game: any) => {
-            if (game.victoire === true || game.victoire === 'true') {
-              const tries = Number(game.tentatives) || 0;
-              const index = Math.max(0, 11 - tries);
-              score += Math.round(((fibonacci[index] || 0) + 2) / 2);
-            }
-          });
-        }
-        return { id: u.id, pseudo: u.pseudo, score };
-      });
-
-      scores.sort((a, b) => b.score !== a.score ? b.score - a.score : a.pseudo.localeCompare(b.pseudo));
-
-      const rankIndex = scores.findIndex(s => s.id === userData.id);
-      if (rankIndex !== -1 && scores[rankIndex].score > 0) {
-        userRank = rankIndex + 1;
-        userScore = scores[rankIndex].score;
-      } else {
-        userRank = "Non classé";
-        userScore = 0;
+      if (!userData) {
+        if (isComponentMounted) userProfile = null;
+        return;
       }
+
+      if (isComponentMounted) userProfile = userData;
+
+      // 2. Requêtes parallèles pour accélérer le chargement (Critères + Classement + Historique perso)
+      const dbRequests = Promise.all([
+        supabase.from('config_caracteristiques').select('cle, label').eq('actif', true).order('ordre'),
+        supabase.from('profil_viewer').select('id, pseudo, historique(victoire, tentatives)'),
+        supabase.from('historique').select('date_partie, tentatives, victoire').eq('id_compte', userData.id).eq('type_jeu', 'viewerdl').order('date_partie', { ascending: false })
+      ]);
+
+      const [critRes, allUsersRes, histRes] = await Promise.race([dbRequests, timeoutPromise]);
+
+      if (isComponentMounted) {
+        // --- Assignation des critères ---
+        criteres = critRes.data || [];
+
+        // --- Calcul du Classement ---
+        const allUsers = allUsersRes.data;
+        if (allUsers) {
+          const scores = allUsers.map(u => {
+            let score = 0;
+            if (u.historique && Array.isArray(u.historique)) {
+              u.historique.forEach((game: any) => {
+                if (game.victoire === true || game.victoire === 'true') {
+                  const tries = Number(game.tentatives) || 0;
+                  const index = Math.max(0, 11 - tries);
+                  score += Math.round(((fibonacci[index] || 0) + 2) / 2);
+                }
+              });
+            }
+            return { id: u.id, pseudo: u.pseudo, score };
+          });
+
+          scores.sort((a, b) => b.score !== a.score ? b.score - a.score : a.pseudo.localeCompare(b.pseudo));
+
+          const rankIndex = scores.findIndex(s => s.id === userData.id);
+          if (rankIndex !== -1 && scores[rankIndex].score > 0) {
+            userRank = rankIndex + 1;
+            userScore = scores[rankIndex].score;
+          } else {
+            userRank = "Non classé";
+            userScore = 0;
+          }
+        }
+
+        // --- Assignation de l'Historique ---
+        history = histRes.data || [];
+        maxTries = history.length > 0 ? Math.max(...history.map(h => h.tentatives)) : 1;
+      }
+
+    } catch (error) {
+      console.warn("Erreur ou timeout lors du chargement du profil :", error);
+      if (isComponentMounted && !userProfile) {
+        userProfile = null; // Force l'affichage de "Dossier Introuvable" en cas d'échec total
+      }
+    } finally {
+      if (isComponentMounted) isLoading = false;
     }
-
-    const { data: histData } = await supabase
-      .from('historique')
-      .select('date_partie, tentatives, victoire')
-      .eq('id_compte', userData.id)
-      .eq('type_jeu', 'viewerdl')
-      .order('date_partie', { ascending: false });
-
-    history = histData || [];
-    maxTries = history.length > 0 ? Math.max(...history.map(h => h.tentatives)) : 1;
-
-    isLoading = false;
   }
 
   function getHeatmapStyle(tries: number) {
