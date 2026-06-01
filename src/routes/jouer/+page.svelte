@@ -15,7 +15,6 @@
   let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
   let errorMessage = $state('');
 
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
   let filteredViewers = $derived(
@@ -24,7 +23,6 @@
       : allViewers.filter(v => v.pseudo.toLowerCase().includes(searchQuery.toLowerCase()) && !guesses.some(g => g.id === v.id))
   );
 
-  // Fonction utilitaire pour avoir YYYY-MM-DD en heure LOCALE
   function getLocalToday() {
     const d = new Date();
     const year = d.getFullYear();
@@ -40,10 +38,9 @@
     const loadGame = async () => {
       try {
         const timeoutPromise = new Promise<any>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout de connexion au réseau")), 4000)
+          setTimeout(() => reject(new Error("Timeout réseau")), 4000)
         );
 
-        // 1. Vérification de la session
         const sessionPromise = supabase.auth.getSession();
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
@@ -52,7 +49,6 @@
           return;
         }
 
-        // 2. Vérification de l'accréditation
         const rolePromise = supabase.from('viewer_droit').select('id_droit').eq('id_viewer', session.user.id).in('id_droit', [1, 3]);
         const { data: roleCheck } = await Promise.race([rolePromise, timeoutPromise]);
 
@@ -61,63 +57,44 @@
           return;
         }
 
-        // 3. Initialisation du jeu
         if (isComponentMounted) {
           await initGame();
           await checkAlreadyPlayed();
         }
 
       } catch (e: any) {
-        console.warn("Erreur lors du chargement initial :", e);
-        if (isComponentMounted) errorMessage = "Erreur réseau ou délai d'attente dépassé : " + e.message;
+        console.warn("Erreur lors du chargement :", e);
+        if (isComponentMounted) errorMessage = "Erreur réseau ou délai dépassé : " + e.message;
       } finally {
         if (isComponentMounted) isLoading = false;
       }
     };
 
     loadGame();
-
-    // NETTOYAGE à la destruction
-    return () => {
-      isComponentMounted = false;
-    };
+    return () => { isComponentMounted = false; };
   });
 
   async function initGame() {
     if (!isComponentMounted) return;
     const today = getLocalToday();
+    const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout BDD")), 4000));
 
-    const timeoutPromise = new Promise<any>((_, reject) =>
-      setTimeout(() => reject(new Error("Le réseau met trop de temps à répondre")), 4000)
-    );
-
-    // 1. Récupération des critères de jeu
     const critPromise = supabase.from('config_caracteristiques').select('*').eq('actif', true).order('ordre', { ascending: true });
     const { data: critData, error: critErr } = await Promise.race([critPromise, timeoutPromise]);
 
     if (critErr) throw critErr;
     if (isComponentMounted) criteres = critData ? critData : [];
 
-    // ==========================================
-    // 2. GESTION DU SNAPSHOT QUOTIDIEN
-    // ==========================================
-
     let snapPromise = supabase.from('joueur_daily_caracteristique').select('id_compte, pseudo, caracteristiques').eq('date_jour', today);
-    let { data: dailySnapshots, error: snapErr } = await Promise.race([snapPromise, timeoutPromise]);
+    let { data: dailySnapshots } = await Promise.race([snapPromise, timeoutPromise]);
 
-    // S'il n'y a pas de snapshot, on le crée
     if ((!dailySnapshots || dailySnapshots.length === 0) && isComponentMounted) {
-      console.log("Premier chargement du jour : Génération du Snapshot global...");
-
       const liveViewersPromise = supabase.from('profil_viewer').select('id, pseudo, caracteristiques');
       const { data: liveViewers } = await Promise.race([liveViewersPromise, timeoutPromise]);
 
       if (liveViewers && liveViewers.length > 0) {
         const payload = liveViewers.map(v => ({
-          date_jour: today,
-          id_compte: v.id,
-          pseudo: v.pseudo,
-          caracteristiques: v.caracteristiques || {}
+          date_jour: today, id_compte: v.id, pseudo: v.pseudo, caracteristiques: v.caracteristiques || {}
         }));
 
         const insertSnapPromise = supabase.from('joueur_daily_caracteristique').insert(payload);
@@ -137,30 +114,19 @@
 
     if (isComponentMounted) {
       allViewers = dailySnapshots.map((v: any) => ({
-        id: v.id_compte,
-        pseudo: v.pseudo,
-        caracteristiques: v.caracteristiques
+        id: v.id_compte, pseudo: v.pseudo, caracteristiques: v.caracteristiques
       }));
     }
-
-    // ==========================================
-    // 3. GESTION DE LA CIBLE DU JOUR
-    // ==========================================
 
     let histPromise = supabase.from('historique_cibles').select('id_compte, caracteristiques').eq('date_cible', today).eq('type_jeu', 'viewerdl').maybeSingle();
     let { data: histData } = await Promise.race([histPromise, timeoutPromise]);
 
     if (!histData && allViewers.length > 0 && isComponentMounted) {
-      console.log("Initialisation de la cible du jour...");
-
       const randomIndex = Math.floor(Math.random() * allViewers.length);
       const randomTarget = allViewers[randomIndex];
 
       const insertTargetPromise = supabase.from('historique_cibles').insert({
-        date_cible: today,
-        id_compte: randomTarget.id,
-        type_jeu: 'viewerdl',
-        caracteristiques: randomTarget.caracteristiques
+        date_cible: today, id_compte: randomTarget.id, type_jeu: 'viewerdl', caracteristiques: randomTarget.caracteristiques
       });
 
       const { error: insertErr } = await Promise.race([insertTargetPromise, timeoutPromise]);
@@ -170,14 +136,10 @@
         const { data: retryData } = await Promise.race([retryDataPromise, timeoutPromise]);
         histData = retryData;
       } else {
-        histData = {
-          id_compte: randomTarget.id,
-          caracteristiques: randomTarget.caracteristiques
-        };
+        histData = { id_compte: randomTarget.id, caracteristiques: randomTarget.caracteristiques };
       }
     }
 
-    // 4. Assignation finale
     if (histData && isComponentMounted) {
       const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
       targetViewer = {
@@ -190,7 +152,6 @@
 
   async function checkAlreadyPlayed() {
     if (!isComponentMounted) return;
-
     try {
       const sessionPromise = supabase.auth.getSession();
       const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
@@ -198,7 +159,6 @@
 
       if (session && targetViewer) {
         const today = getLocalToday();
-
         const histCheckPromise = supabase.from('historique').select('tentatives').eq('id_compte', session.user.id).eq('date_partie', today).maybeSingle();
         const { data } = await Promise.race([histCheckPromise, timeoutPromise]);
 
@@ -213,11 +173,9 @@
   }
 
   async function handleGuess(viewer: any) {
-    searchQuery = '';
-    showSuggestions = false;
+    searchQuery = ''; showSuggestions = false;
 
     const results = criteres.map(crit => {
-      // Valeurs figées
       const val = viewer.caracteristiques?.[crit.cle];
       const targetVal = targetViewer.caracteristiques?.[crit.cle];
       const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
@@ -241,11 +199,10 @@
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          // On n'attend pas la fin de l'insertion pour ne pas bloquer l'expérience utilisateur
           supabase.from('historique').insert({
             id_compte: session.user.id, victoire: true, tentatives: guesses.length, type_jeu: 'viewerdl'
           }).then(({error}) => {
-             if (error) console.warn("Erreur lors de l'enregistrement de la victoire", error);
+             if (error) console.warn("Erreur sauvegarde victoire", error);
           });
         }
       } catch (err) {

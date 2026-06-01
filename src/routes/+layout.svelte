@@ -1,6 +1,5 @@
 <script lang="ts">
   import '../app.css';
-  // ON IMPORTE LE NOUVEAU CHAMP ICI :
   import { version, changelog } from '../../package.json';
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
@@ -9,14 +8,9 @@
 
   let profile = $state<any>(null);
   let isAdmin = $state(false);
-
-  // État de la popup de mise à jour
   let showUpdatePopup = $state(false);
-
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
-  // Fonction pour formater le pseudo (max 5 caractères)
   function formatPseudo(pseudo: string) {
     if (!pseudo) return '';
     return pseudo.length > 5 ? pseudo.slice(0, 5) + '..' : pseudo;
@@ -25,35 +19,21 @@
   onMount(() => {
     isComponentMounted = true;
 
-    // --- VÉRIFICATION DE LA VERSION ---
-    // On vérifie le localStorage du navigateur
+    // Gestion de la modale de mise à jour
     const savedVersion = localStorage.getItem('viewerdle_version');
-
-    // Si la version sauvegardée est différente de la version actuelle ET qu'il y a un message
     if (savedVersion !== version && changelog) {
       showUpdatePopup = true;
     }
-    // ----------------------------------
 
-    // 1. Chargement initial de la session
-    const initSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user && isComponentMounted) {
-          await fetchProfile(session.user.id);
-        }
-      } catch (error) {
-        console.warn("Erreur lors de la récupération initiale de la session :", error);
-      }
-    };
-    initSession();
-
-    // 2. Écouteur des changements de session (Connexion / Déconnexion)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
+    // Écouteur global Supabase (Il gère le premier chargement ET les reconnexions)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isComponentMounted) return;
 
       if (session?.user) {
-        await fetchProfile(session.user.id);
+        // LE BOUCLIER ANTI-FREEZE
+        if (!profile) {
+          await fetchProfile(session.user.id);
+        }
       } else {
         profile = null;
         isAdmin = false;
@@ -71,7 +51,7 @@
 
     try {
       const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout de la barre de navigation")), 4000)
+        setTimeout(() => reject(new Error("Timeout navigation")), 10000)
       );
 
       const dbRequests = Promise.all([
@@ -82,23 +62,16 @@
       const [profileRes, adminRes] = await Promise.race([dbRequests, timeoutPromise]);
 
       if (isComponentMounted) {
-        if (profileRes.data && !profileRes.error) {
-          profile = profileRes.data;
-        } else {
-          profile = null;
-        }
+        if (profileRes.data && !profileRes.error) profile = profileRes.data;
         isAdmin = !!adminRes.data;
       }
     } catch (error) {
-      console.warn("Délai dépassé ou erreur réseau pour le profil global :", error);
+      console.warn("Délai dépassé pour le layout :", error);
     }
   }
 
-  // --- FONCTION POUR FERMER LA POPUP ---
   function closeUpdatePopup() {
-    // On enregistre la nouvelle version en local pour ne plus l'afficher
     localStorage.setItem('viewerdle_version', version);
-    // On cache la popup
     showUpdatePopup = false;
   }
 </script>

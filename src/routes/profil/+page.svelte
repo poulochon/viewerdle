@@ -2,42 +2,36 @@
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
 
-  // Variables globales
   let isLoading = $state(true);
   let userProfile = $state<any>(null);
   let userPseudo = $state('');
-  let userEmail = $state(''); // Stocké en silence pour le changement de mot de passe
+  let userEmail = $state('');
   let criteres = $state<any[]>([]);
 
-  // Variables du formulaire d'Authentification (Connexion / Inscription)
   let authMode = $state<'login' | 'register'>('login');
   let authPassword = $state('');
   let authPseudo = $state('');
   let authError = $state('');
   let authMessage = $state('');
 
-  // Messages de retour pour le profil
   let profileMessage = $state('');
   let profileError = $state('');
 
-  // Variables pour la sécurité (Mot de passe)
   let oldPassword = $state('');
   let newPassword = $state('');
   let pwdMessage = $state('');
   let pwdError = $state('');
 
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
   onMount(() => {
     isComponentMounted = true;
 
-    // Écoute automatique des changements de session
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isComponentMounted) return;
 
       if (session) {
-        await checkSession();
+        if (!userProfile) await checkSession();
       } else {
         userProfile = null;
         isLoading = false;
@@ -45,38 +39,28 @@
     });
 
     checkSession();
-
-    // NETTOYAGE : Coupe l'écouteur si on change de page
     return () => {
       isComponentMounted = false;
       subscription.unsubscribe();
     };
   });
 
-  // Fonction centrale pour charger ou recharger le profil
   async function checkSession() {
     if (!isComponentMounted) return;
     isLoading = true;
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout de session réseau")), 4000)
-      );
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout session")), 4000));
       const sessionPromise = supabase.auth.getSession();
       const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
       if (!session) {
-        if (isComponentMounted) {
-          userProfile = null;
-          isLoading = false;
-        }
+        if (isComponentMounted) { userProfile = null; isLoading = false; }
         return;
       }
 
       if (isComponentMounted) userEmail = session.user.email || '';
 
-      // Requêtes parallèles pour accélérer
       const dbRequests = Promise.all([
         supabase.from('profil_viewer').select('*').eq('id', session.user.id).single(),
         supabase.from('config_caracteristiques').select('*').eq('actif', true).order('ordre', { ascending: true })
@@ -90,18 +74,15 @@
           userPseudo = profileReq.data.pseudo;
           if (!userProfile.caracteristiques) userProfile.caracteristiques = {};
         }
-
         criteres = critReq.data || [];
       }
     } catch (error) {
-      console.warn("Erreur ou timeout lors de la récupération du profil de l'utilisateur :", error);
-      if (isComponentMounted) authError = "Instabilité réseau détectée, rechargement partiel.";
+      console.warn("Erreur réseau profil :", error);
+      if (isComponentMounted) authError = "Instabilité réseau détectée.";
     } finally {
       if (isComponentMounted) isLoading = false;
     }
   }
-
-  // --- FONCTIONS D'AUTHENTIFICATION ---
 
   function generateFakeEmail(p: string) {
     const cleanPseudo = p.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -113,27 +94,20 @@
     authError = ''; authMessage = '';
 
     if (!authPseudo || !authPassword) {
-      authError = "Veuillez renseigner vos identifiants.";
-      return;
+      authError = "Veuillez renseigner vos identifiants."; return;
     }
 
     isLoading = true;
-    const fakeEmail = generateFakeEmail(authPseudo);
-
     try {
       const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
-      const loginPromise = supabase.auth.signInWithPassword({ email: fakeEmail, password: authPassword });
-
+      const loginPromise = supabase.auth.signInWithPassword({ email: generateFakeEmail(authPseudo), password: authPassword });
       const { error } = await Promise.race([loginPromise, timeoutPromise]);
 
-      if (error && isComponentMounted) {
-        authError = "Identifiants invalides.";
-      }
+      if (error && isComponentMounted) authError = "Identifiants invalides.";
     } catch (error) {
       if (isComponentMounted) authError = "Le serveur ne répond pas.";
     } finally {
       if (isComponentMounted && authError) isLoading = false;
-      // Si pas d'erreur, isLoading restera true jusqu'à ce que onAuthStateChange prenne le relais
     }
   }
 
@@ -142,21 +116,15 @@
     authError = ''; authMessage = '';
 
     if (!authPseudo || !authPassword) {
-      authError = "Veuillez remplir tous les champs.";
-      return;
+      authError = "Veuillez remplir tous les champs."; return;
     }
 
     isLoading = true;
-    const fakeEmail = generateFakeEmail(authPseudo);
-
     try {
       const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
       const registerPromise = supabase.auth.signUp({
-        email: fakeEmail,
-        password: authPassword,
-        options: { data: { pseudo_reel: authPseudo } }
+        email: generateFakeEmail(authPseudo), password: authPassword, options: { data: { pseudo_reel: authPseudo } }
       });
-
       const { error } = await Promise.race([registerPromise, timeoutPromise]);
 
       if (error && isComponentMounted) {
@@ -167,7 +135,7 @@
         }
       }
     } catch (error) {
-      if (isComponentMounted) authError = "Délai de connexion dépassé.";
+      if (isComponentMounted) authError = "Délai dépassé.";
     } finally {
       if (isComponentMounted && authError) isLoading = false;
     }
@@ -177,53 +145,30 @@
     if (!isComponentMounted) return;
     try {
       await supabase.auth.signOut();
-      if (isComponentMounted) {
-        authPassword = '';
-        authPseudo = '';
-      }
+      if (isComponentMounted) { authPassword = ''; authPseudo = ''; }
     } catch (error) {
-      console.warn("Erreur lors de la déconnexion :", error);
+      console.warn("Erreur déconnexion :", error);
     }
   }
-
-  // --- FONCTIONS DU PROFIL ---
 
   async function handlePasswordUpdate() {
     if (!isComponentMounted) return;
     pwdError = ''; pwdMessage = '';
 
-    if (!oldPassword) {
-      pwdError = "Veuillez saisir votre ancien mot de passe.";
-      return;
-    }
-    if (newPassword.length < 6) {
-      pwdError = "Le nouveau mot de passe doit faire au moins 6 caractères.";
-      return;
-    }
+    if (!oldPassword) { pwdError = "Ancien mot de passe requis."; return; }
+    if (newPassword.length < 6) { pwdError = "6 caractères minimum."; return; }
 
     try {
-      const { error: verifyError } = await supabase.auth.signInWithPassword({
-        email: userEmail,
-        password: oldPassword
-      });
-
-      if (verifyError) {
-        if (isComponentMounted) pwdError = "L'ancien mot de passe est incorrect.";
-        return;
-      }
+      const { error: verifyError } = await supabase.auth.signInWithPassword({ email: userEmail, password: oldPassword });
+      if (verifyError) { if (isComponentMounted) pwdError = "Ancien mot de passe incorrect."; return; }
 
       const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-
       if (isComponentMounted) {
-        if (updateError) {
-          pwdError = "Erreur système : " + updateError.message;
-        } else {
-          pwdMessage = "Mot de passe modifié avec succès !";
-          oldPassword = ''; newPassword = '';
-        }
+        if (updateError) pwdError = "Erreur système : " + updateError.message;
+        else { pwdMessage = "Mot de passe modifié !"; oldPassword = ''; newPassword = ''; }
       }
     } catch (error) {
-      if (isComponentMounted) pwdError = "Délai de réponse serveur dépassé.";
+      if (isComponentMounted) pwdError = "Délai serveur dépassé.";
     }
   }
 
@@ -232,23 +177,16 @@
     profileMessage = ''; profileError = '';
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout sauvegarde")), 4000));
-      const updatePromise = supabase
-        .from('profil_viewer')
-        .update({ caracteristiques: userProfile.caracteristiques })
-        .eq('id', userProfile.id);
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
+      const updatePromise = supabase.from('profil_viewer').update({ caracteristiques: userProfile.caracteristiques }).eq('id', userProfile.id);
       const { error } = await Promise.race([updatePromise, timeoutPromise]);
 
       if (isComponentMounted) {
-        if (error) {
-          profileError = "Impossible de sauvegarder : " + error.message;
-        } else {
-          profileMessage = "Vos caractéristiques ont bien été mises à jour !";
-        }
+        if (error) profileError = "Impossible de sauvegarder : " + error.message;
+        else profileMessage = "Vos caractéristiques ont bien été mises à jour !";
       }
     } catch (error) {
-      if (isComponentMounted) profileError = "Le réseau est trop lent pour sauvegarder pour le moment.";
+      if (isComponentMounted) profileError = "Réseau lent, réessayez plus tard.";
     }
   }
 </script>

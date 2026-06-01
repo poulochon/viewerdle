@@ -1,34 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabase } from '$lib/supabaseClient';
+  import { supabase, SUPABASE_URL, SUPABASE_KEY } from '$lib/supabaseClient';
 
   let isLoading = $state(true);
   let leaderboard = $state<any[]>([]);
-  let visibleRanks = $state<any[]>([]); // Liste des rangs découverts
+  let visibleRanks = $state<any[]>([]);
 
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
-  // Tableau de la suite de Fibonacci (de F0 à F10)
   const fibonacci = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
-
-  // Calcul dynamique des points pour le graphique (de 1 à 10 essais)
   const chartData = Array.from({ length: 10 }, (_, i) => {
     const essais = i + 1;
     const index = Math.max(0, 11 - essais);
     const fVal = fibonacci[index] || 0;
-    const points = Math.round((fVal + 2) / 2);
-    return { essais, points };
+    return { essais, points: Math.round((fVal + 2) / 2) };
   });
 
-  // Configuration de l'échelle du graphique pour éviter les décalages
   const maxPoints = Math.max(...chartData.map(d => d.points));
-  const paddingX = 60;
-  const paddingY = 40;
-  const widthX = 1000 - (paddingX * 2);
-  const heightY = 250 - (paddingY * 2);
-
-  // Fonctions d'échantillonnage pour positionner précisément les éléments dans le SVG
+  const paddingX = 60; const paddingY = 40;
+  const widthX = 1000 - (paddingX * 2); const heightY = 250 - (paddingY * 2);
   const getX = (index: number) => paddingX + (index / 9) * widthX;
   const getY = (points: number) => 250 - paddingY - ((points / maxPoints) * heightY);
 
@@ -38,87 +28,64 @@
 
     const loadLeaderboard = async () => {
       try {
-        const timeoutPromise = new Promise<any>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout réseau chargement classement")), 4000)
-        );
+        const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
 
-        // Groupement des deux requêtes pour aller plus vite
-        const dbRequests = Promise.all([
-          supabase.from('rank').select('*').order('nombre_points', { ascending: false }),
-          supabase.from('profil_viewer').select('pseudo, historique(victoire, tentatives)')
+        const [rankRes, playerRes] = await Promise.all([
+          fetch(`${SUPABASE_URL}/rest/v1/rank?select=*&order=nombre_points.desc`, { headers }),
+          fetch(`${SUPABASE_URL}/rest/v1/profil_viewer?select=pseudo,historique(victoire,tentatives)`, { headers })
         ]);
 
-        // Course entre la base de données et le chrono
-        const [rankReq, playerReq] = await Promise.race([dbRequests, timeoutPromise]);
+        const ranks = await rankRes.json() || [];
+        const playerData = await playerRes.json();
 
-        if (isComponentMounted) {
-          const ranks = rankReq.data || [];
-          const playerData = playerReq.data;
+        if (isComponentMounted && playerData && !playerData.error) {
 
-          if (playerData) {
-            const calculatedScores = playerData.map(player => {
-              let score = 0;
-              let wins = 0;
-              let totalTentatives = 0;
+          const calculatedScores = playerData.map((player: any) => {
+            let score = 0; let wins = 0; let totalTentatives = 0;
 
-              if (player.historique && Array.isArray(player.historique)) {
-                player.historique.forEach((game: any) => {
-                  if (game.victoire === true || game.victoire === 'true') {
-                    wins++;
-                    const tries = Number(game.tentatives) || 0;
-                    totalTentatives += tries;
-
-                    const index = Math.max(0, 11 - tries);
-                    const fVal = fibonacci[index] || 0;
-                    const points = Math.round((fVal + 2) / 2);
-                    score += points;
-                  }
-                });
-              }
-
-              // Attribution du rang pour le joueur
-              const currentRank = ranks.find(r => score >= r.nombre_points) || ranks[ranks.length - 1] || null;
-
-              return {
-                pseudo: player.pseudo || 'Joueur Inconnu',
-                score,
-                wins,
-                avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-',
-                rankName: currentRank?.nom_rang || 'Non classé',
-                rankIcon: currentRank?.icone_url || null
-              };
-            });
-
-            // Tri du classement général
-            leaderboard = calculatedScores.sort((a, b) => {
-              if (b.score !== a.score) return b.score - a.score;
-              return a.pseudo.localeCompare(b.pseudo);
-            });
-
-            // Logique de Mystère des Rangs
-            const highestScoreReached = leaderboard.length > 0 ? Math.max(...leaderboard.map(p => p.score)) : 0;
-            const highestRankReached = ranks.find(r => highestScoreReached >= r.nombre_points) || ranks[ranks.length - 1];
-
-            if (highestRankReached) {
-              visibleRanks = [...ranks]
-                .reverse()
-                .filter(r => r.nombre_points <= highestRankReached.nombre_points);
+            if (player.historique && Array.isArray(player.historique)) {
+              player.historique.forEach((game: any) => {
+                if (game.victoire === true || game.victoire === 'true') {
+                  wins++;
+                  const tries = Number(game.tentatives) || 0;
+                  totalTentatives += tries;
+                  const index = Math.max(0, 11 - tries);
+                  score += Math.round(((fibonacci[index] || 0) + 2) / 2);
+                }
+              });
             }
+
+            const currentRank = ranks.find((r: any) => score >= r.nombre_points) || ranks[ranks.length - 1] || null;
+
+            return {
+              pseudo: player.pseudo || 'Joueur Inconnu', score, wins,
+              avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-',
+              rankName: currentRank?.nom_rang || 'Non classé',
+              rankIcon: currentRank?.icone_url || null
+            };
+          });
+
+          leaderboard = calculatedScores.sort((a: any, b: any) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return a.pseudo.localeCompare(b.pseudo);
+          });
+
+          const highestScoreReached = leaderboard.length > 0 ? Math.max(...leaderboard.map(p => p.score)) : 0;
+          const highestRankReached = ranks.find((r: any) => highestScoreReached >= r.nombre_points) || ranks[ranks.length - 1];
+
+          if (highestRankReached) {
+            visibleRanks = [...ranks].reverse().filter(r => r.nombre_points <= highestRankReached.nombre_points);
           }
         }
       } catch (error) {
-        console.warn("Erreur lors de la récupération du classement :", error);
+        console.warn("Erreur HTTP classement :", error);
       } finally {
         if (isComponentMounted) isLoading = false;
       }
     };
 
     loadLeaderboard();
-
-    // NETTOYAGE : Détruit les processus si on change de page
-    return () => {
-      isComponentMounted = false;
-    };
+    return () => { isComponentMounted = false; };
   });
 </script>
 

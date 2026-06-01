@@ -1,68 +1,58 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabase } from '$lib/supabaseClient';
+  import { supabase, SUPABASE_URL, SUPABASE_KEY } from '$lib/supabaseClient';
   import { goto } from '$app/navigation';
 
   let isLoading = $state(true);
   let stats = $state({ totalPlayers: 0, totalGames: 0 });
-  let authMessage = $state(''); // Message d'erreur d'authentification
+  let authMessage = $state('');
 
-  // Variables pour la messagerie
   let messageContent = $state('');
   let isSubmittingMessage = $state(false);
   let messageStatus = $state({ text: '', type: '' });
 
   onMount(() => {
-    // Variable de contrôle pour savoir si on est toujours sur la page
     let isMounted = true;
     isLoading = true;
 
     const fetchStats = async () => {
       try {
-        // Chrono de sécurité de 3 secondes
-        const timeoutPromise = new Promise<any>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout Supabase")), 3000)
-        );
+        const headers = {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Prefer': 'count=exact'
+        };
 
-        // Les deux requêtes groupées
-        const dbRequests = Promise.all([
-          supabase.from('profil_viewer').select('*', { count: 'exact', head: true }),
-          supabase.from('historique').select('*', { count: 'exact', head: true })
+        const [playersRes, gamesRes] = await Promise.all([
+          fetch(`${SUPABASE_URL}/rest/v1/profil_viewer?select=id`, { method: 'HEAD', headers }),
+          fetch(`${SUPABASE_URL}/rest/v1/historique?select=id`, { method: 'HEAD', headers })
         ]);
 
-        // Course entre la base de données et le chrono
-        const [playersReq, gamesReq] = await Promise.race([dbRequests, timeoutPromise]);
+        const totalPlayers = playersRes.headers.get('content-range')?.split('/')[1] || 0;
+        const totalGames = gamesRes.headers.get('content-range')?.split('/')[1] || 0;
 
-        // On ne met à jour l'affichage que si la page n'a pas été quittée entre temps
         if (isMounted) {
           stats = {
-            totalPlayers: playersReq.count || 0,
-            totalGames: gamesReq.count || 0
+            totalPlayers: Number(totalPlayers),
+            totalGames: Number(totalGames)
           };
         }
       } catch (error) {
-        console.warn("Délai d'attente dépassé ou erreur réseau :", error);
+        console.warn("Erreur de chargement HTTP direct :", error);
       } finally {
-        // Le GARDE-FOU : On libère l'écran quoi qu'il arrive
         if (isMounted) isLoading = false;
       }
     };
 
     fetchStats();
 
-    // NETTOYAGE à la destruction de la page (quand on change d'onglet/page)
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   });
 
-  // Fonction de vérification avant d'accéder au jeu (Sécurisée)
   async function handlePlayClick() {
     authMessage = '';
-
     try {
-      // 1. Vérification de la connexion avec chrono pour éviter le freeze au clic
-      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
       const sessionPromise = supabase.auth.getSession();
 
       const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
@@ -72,7 +62,6 @@
         return;
       }
 
-      // 2. Vérification des droits
       const rolePromise = supabase.from('viewer_droit').select('id_droit').eq('id_viewer', session.user.id).in('id_droit', [1, 3]);
       const { data: roleCheck } = await Promise.race([rolePromise, timeoutPromise]);
 
@@ -81,42 +70,32 @@
         return;
       }
 
-      // Si tout est bon, on l'envoie sur le jeu
       goto('/jouer');
-
     } catch (error) {
-      console.warn("Erreur lors de la vérification :", error);
       authMessage = "Le réseau est instable. Veuillez réessayer.";
     }
   }
 
-  // Fonction pour envoyer le message (Sécurisée avec un finally)
   async function handleSendMessage(e: Event) {
     e.preventDefault();
     messageStatus = { text: '', type: '' };
-
     if (!messageContent.trim()) {
       messageStatus = { text: "Le message est vide.", type: 'error' };
       return;
     }
-
     isSubmittingMessage = true;
-
     try {
-      const { error } = await supabase
-        .from('messagerie')
-        .insert({ contenu: messageContent.trim() });
-
+      const { error } = await supabase.from('messagerie').insert({ contenu: messageContent.trim() });
       if (error) {
-        messageStatus = { text: "Erreur de transmission : " + error.message, type: 'error' };
+        messageStatus = { text: "Erreur : " + error.message, type: 'error' };
       } else {
-        messageStatus = { text: "Message transmis aux administrateurs avec succès.", type: 'success' };
-        messageContent = ''; // On vide le champ après l'envoi
+        messageStatus = { text: "Message transmis avec succès.", type: 'success' };
+        messageContent = '';
       }
     } catch (err) {
       messageStatus = { text: "Erreur inattendue du réseau.", type: 'error' };
     } finally {
-      isSubmittingMessage = false; // Toujours réactiver le bouton
+      isSubmittingMessage = false;
     }
   }
 </script>

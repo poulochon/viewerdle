@@ -10,16 +10,12 @@
   let criteres = $state<any[]>([]);
   let history = $state<any[]>([]);
   let maxTries = $state(1);
-
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
-  // Variables pour le classement
   let userRank = $state<number | string>("-");
   let userScore = $state(0);
   const fibonacci = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
 
-  // Variables du calendrier
   const currentDate = new Date();
   let selectedMonth = $state(currentDate.getMonth());
   let selectedYear = $state(currentDate.getFullYear());
@@ -36,19 +32,10 @@
     for (let i = 0; i < startingDay; i++) grid.push(null);
 
     for (let i = 1; i <= lastDay.getDate(); i++) {
-      const yyyy = selectedYear;
-      const mm = String(selectedMonth + 1).padStart(2, '0');
-      const dd = String(i).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-
+      const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
       const game = history.find(h => h.date_partie === dateStr);
-
       grid.push({
-        dayNumber: i,
-        dateStr: dateStr,
-        played: !!game,
-        won: game?.victoire === true || game?.victoire === 'true',
-        tries: game?.tentatives || 0
+        dayNumber: i, dateStr, played: !!game, won: game?.victoire === true || game?.victoire === 'true', tries: game?.tentatives || 0
       });
     }
     return grid;
@@ -56,11 +43,7 @@
 
   onMount(() => {
     isComponentMounted = true;
-
-    // NETTOYAGE : Détruit le statut si on change de page
-    return () => {
-      isComponentMounted = false;
-    };
+    return () => { isComponentMounted = false; };
   });
 
   $effect(() => {
@@ -69,19 +52,9 @@
 
   async function fetchUserProfile(targetPseudo: string) {
     isLoading = true;
-
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout réseau chargement profil")), 4000)
-      );
-
-      // 1. Récupération du profil principal
-      const userPromise = supabase
-        .from('profil_viewer')
-        .select('id, pseudo, caracteristiques')
-        .ilike('pseudo', targetPseudo)
-        .maybeSingle();
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
+      const userPromise = supabase.from('profil_viewer').select('id, pseudo, caracteristiques').ilike('pseudo', targetPseudo).maybeSingle();
       const { data: userData } = await Promise.race([userPromise, timeoutPromise]);
 
       if (!userData) {
@@ -91,7 +64,6 @@
 
       if (isComponentMounted) userProfile = userData;
 
-      // 2. Requêtes parallèles pour accélérer le chargement (Critères + Classement + Historique perso)
       const dbRequests = Promise.all([
         supabase.from('config_caracteristiques').select('cle, label').eq('actif', true).order('ordre'),
         supabase.from('profil_viewer').select('id, pseudo, historique(victoire, tentatives)'),
@@ -101,11 +73,9 @@
       const [critRes, allUsersRes, histRes] = await Promise.race([dbRequests, timeoutPromise]);
 
       if (isComponentMounted) {
-        // --- Assignation des critères ---
         criteres = critRes.data || [];
-
-        // --- Calcul du Classement ---
         const allUsers = allUsersRes.data;
+
         if (allUsers) {
           const scores = allUsers.map(u => {
             let score = 0;
@@ -113,8 +83,7 @@
               u.historique.forEach((game: any) => {
                 if (game.victoire === true || game.victoire === 'true') {
                   const tries = Number(game.tentatives) || 0;
-                  const index = Math.max(0, 11 - tries);
-                  score += Math.round(((fibonacci[index] || 0) + 2) / 2);
+                  score += Math.round(((fibonacci[Math.max(0, 11 - tries)] || 0) + 2) / 2);
                 }
               });
             }
@@ -122,27 +91,20 @@
           });
 
           scores.sort((a, b) => b.score !== a.score ? b.score - a.score : a.pseudo.localeCompare(b.pseudo));
-
           const rankIndex = scores.findIndex(s => s.id === userData.id);
+
           if (rankIndex !== -1 && scores[rankIndex].score > 0) {
-            userRank = rankIndex + 1;
-            userScore = scores[rankIndex].score;
+            userRank = rankIndex + 1; userScore = scores[rankIndex].score;
           } else {
-            userRank = "Non classé";
-            userScore = 0;
+            userRank = "Non classé"; userScore = 0;
           }
         }
-
-        // --- Assignation de l'Historique ---
         history = histRes.data || [];
         maxTries = history.length > 0 ? Math.max(...history.map(h => h.tentatives)) : 1;
       }
-
     } catch (error) {
-      console.warn("Erreur ou timeout lors du chargement du profil :", error);
-      if (isComponentMounted && !userProfile) {
-        userProfile = null; // Force l'affichage de "Dossier Introuvable" en cas d'échec total
-      }
+      console.warn("Erreur chargement profil :", error);
+      if (isComponentMounted && !userProfile) userProfile = null;
     } finally {
       if (isComponentMounted) isLoading = false;
     }
@@ -151,7 +113,6 @@
   function getHeatmapStyle(tries: number) {
     if (tries === 0) return 'background-color: rgba(30, 41, 59, 0.4); border-color: rgba(51, 65, 85, 0.3); color: rgba(148, 163, 184, 0.2);';
     if (maxTries <= 1) return 'background-color: rgba(16, 185, 129, 0.8); border-color: rgb(52, 211, 153); box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); color: white;';
-
     const hue = 120 - ((tries - 1) / (maxTries - 1)) * 120;
     return `background-color: hsla(${hue}, 70%, 45%, 0.8); border-color: hsla(${hue}, 80%, 60%, 1); box-shadow: 0 0 10px hsla(${hue}, 80%, 50%, 0.3); color: white;`;
   }

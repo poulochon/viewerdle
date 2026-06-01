@@ -3,98 +3,58 @@
   import { supabase } from '$lib/supabaseClient';
   import { goto } from '$app/navigation';
 
-  // --- ÉTATS ---
   let isLoading = $state(true);
   let isSaving = $state(false);
   let message = $state({ text: '', type: '' });
   let activeTab = $state<'criteres' | 'rangs' | 'enums' | 'messages'>('criteres');
 
-  // Tableaux de données
   let criteres = $state<any[]>([]);
   let ranks = $state<any[]>([]);
-  let inboxMessages = $state<any[]>([]); // Tableau des messages
+  let inboxMessages = $state<any[]>([]);
 
-  // Paniers de suppression
   let criteresToDelete = $state<string[]>([]);
   let ranksToDelete = $state<number[]>([]);
-
-  // Variables temporaires pour les inputs des options d'énumération
   let optionInputs = $state<Record<number, string>>({});
 
-  // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
 
-  // --- INITIALISATION SÉCURISÉE ---
   onMount(() => {
     isComponentMounted = true;
     isLoading = true;
 
     const initializeAdmin = async () => {
       try {
-        const timeoutPromise = new Promise<any>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout initialisation")), 3000)
-        );
-
-        // 1. Récupération de la session
+        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout initialisation")), 3000));
         const sessionPromise = supabase.auth.getSession();
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
-        if (!session) {
-          if (isComponentMounted) goto('/');
-          return;
-        }
+        if (!session) { if (isComponentMounted) goto('/'); return; }
 
-        // 2. Vérification des droits admin
-        const adminCheckPromise = supabase
-          .from('viewer_droit')
-          .select('id_droit')
-          .eq('id_viewer', session.user.id)
-          .eq('id_droit', 1)
-          .maybeSingle();
-
+        const adminCheckPromise = supabase.from('viewer_droit').select('id_droit').eq('id_viewer', session.user.id).eq('id_droit', 1).maybeSingle();
         const { data: adminCheck } = await Promise.race([adminCheckPromise, timeoutPromise]);
 
-        if (!adminCheck) {
-          if (isComponentMounted) goto('/');
-          return;
-        }
+        if (!adminCheck) { if (isComponentMounted) goto('/'); return; }
 
-        // 3. Récupération des données
-        if (isComponentMounted) {
-          await fetchData();
-        }
-
+        if (isComponentMounted) await fetchData();
       } catch (error) {
-        console.warn("Erreur lors de l'accès au panneau admin au réveil de l'onglet :", error);
-        if (isComponentMounted) {
-          message = { text: "Le réseau est instable. Tentative de reconnexion...", type: 'error' };
-        }
+        console.warn("Erreur accès admin :", error);
+        if (isComponentMounted) message = { text: "Le réseau est instable.", type: 'error' };
       } finally {
         if (isComponentMounted) isLoading = false;
       }
     };
 
     initializeAdmin();
-
-    // NETTOYAGE : Coupe instantanément les processus asynchrones si on change de page
-    return () => {
-      isComponentMounted = false;
-    };
+    return () => { isComponentMounted = false; };
   });
 
-  // --- RÉCUPÉRATION DES DONNÉES (SÉCURISÉE) ---
   async function fetchData() {
     if (!isComponentMounted) return;
     isLoading = true;
-    criteresToDelete = [];
-    ranksToDelete = [];
-    optionInputs = {};
+    criteresToDelete = []; ranksToDelete = []; optionInputs = {};
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout chargement données")), 4000)
-      );
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout chargement")), 4000));
       const dbRequests = Promise.all([
         supabase.from('config_caracteristiques').select('*').order('ordre', { ascending: true }),
         supabase.from('rank').select('*').order('nombre_points', { ascending: true }),
@@ -104,77 +64,43 @@
       const [criteresReq, ranksReq, messagesReq] = await Promise.race([dbRequests, timeoutPromise]);
 
       if (isComponentMounted) {
-        if (criteresReq.data) {
-          criteres = criteresReq.data.map(c => ({
-            ...c,
-            options: c.options || []
-          }));
-        }
+        if (criteresReq.data) criteres = criteresReq.data.map(c => ({ ...c, options: c.options || [] }));
         if (ranksReq.data) ranks = ranksReq.data;
         if (messagesReq.data) inboxMessages = messagesReq.data;
       }
     } catch (error) {
-      console.warn("Erreur réseau lors de la récupération des tables :", error);
-      if (isComponentMounted) {
-        message = { text: "Erreur de synchronisation avec la base de données.", type: 'error' };
-      }
+      if (isComponentMounted) message = { text: "Erreur de synchronisation BDD.", type: 'error' };
     } finally {
       if (isComponentMounted) isLoading = false;
     }
   }
 
-  // --- LOGIQUE : CRITÈRES & ÉNUMÉRATIONS ---
-  function addCritere() {
-    criteres = [...criteres, {
-      cle: '',
-      label: '',
-      type_donnee: 'text',
-      ordre: criteres.length + 1,
-      actif: true,
-      options: []
-    }];
-  }
-
+  function addCritere() { criteres = [...criteres, { cle: '', label: '', type_donnee: 'text', ordre: criteres.length + 1, actif: true, options: [] }]; }
   function removeCritere(index: number) {
     const target = criteres[index];
-    if (target.cle && target.cle.trim() !== '') {
-      criteresToDelete = [...criteresToDelete, target.cle];
-    }
+    if (target.cle && target.cle.trim() !== '') criteresToDelete = [...criteresToDelete, target.cle];
     criteres = criteres.filter((_, i) => i !== index);
   }
-
   function addOption(critereIndex: number) {
     const newVal = optionInputs[critereIndex]?.trim();
     if (newVal) {
       if (!criteres[critereIndex].options) criteres[critereIndex].options = [];
-      if (!criteres[critereIndex].options.includes(newVal)) {
-        criteres[critereIndex].options = [...criteres[critereIndex].options, newVal];
-      }
+      if (!criteres[critereIndex].options.includes(newVal)) criteres[critereIndex].options = [...criteres[critereIndex].options, newVal];
       optionInputs[critereIndex] = '';
     }
   }
-
-  function removeOption(critereIndex: number, optionIndex: number) {
-    criteres[critereIndex].options = criteres[critereIndex].options.filter((_, i) => i !== optionIndex);
-  }
+  function removeOption(critereIndex: number, optionIndex: number) { criteres[critereIndex].options = criteres[critereIndex].options.filter((_, i) => i !== optionIndex); }
 
   async function saveCriteres() {
     if (!isComponentMounted) return;
-    isSaving = true;
-    message = { text: '', type: '' };
+    isSaving = true; message = { text: '', type: '' };
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout sauvegarde critères")), 4000)
-      );
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
       if (criteresToDelete.length > 0) {
         const deletePromise = supabase.from('config_caracteristiques').delete().in('cle', criteresToDelete);
         const { error: delError } = await Promise.race([deletePromise, timeoutPromise]);
-        if (delError) {
-          if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
-          return;
-        }
+        if (delError) { if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' }; return; }
       }
 
       const dataToSave = criteres.filter(c => c.cle.trim() !== '' && c.label.trim() !== '');
@@ -184,24 +110,16 @@
       if (upsertError) {
         if (isComponentMounted) message = { text: "Erreur d'enregistrement : " + upsertError.message, type: 'error' };
       } else {
-        if (isComponentMounted) {
-          message = { text: "Modifications des critères déployées !", type: 'success' };
-          await fetchData();
-        }
+        if (isComponentMounted) { message = { text: "Modifications des critères déployées !", type: 'success' }; await fetchData(); }
       }
     } catch (error) {
-      console.warn("Erreur sauvegarde critères :", error);
       if (isComponentMounted) message = { text: "Le réseau a mis trop de temps à répondre.", type: 'error' };
     } finally {
       if (isComponentMounted) isSaving = false;
     }
   }
 
-  // --- LOGIQUE : RANGS ---
-  function addRank() {
-    ranks = [...ranks, { nom_rang: '', nombre_points: 0 }];
-  }
-
+  function addRank() { ranks = [...ranks, { nom_rang: '', nombre_points: 0 }]; }
   function removeRank(index: number) {
     const target = ranks[index];
     if (target.id) ranksToDelete = [...ranksToDelete, target.id];
@@ -210,21 +128,14 @@
 
   async function saveRanks() {
     if (!isComponentMounted) return;
-    isSaving = true;
-    message = { text: '', type: '' };
+    isSaving = true; message = { text: '', type: '' };
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout sauvegarde rangs")), 4000)
-      );
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
       if (ranksToDelete.length > 0) {
         const deletePromise = supabase.from('rank').delete().in('id', ranksToDelete);
         const { error: delError } = await Promise.race([deletePromise, timeoutPromise]);
-        if (delError) {
-          if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' };
-          return;
-        }
+        if (delError) { if (isComponentMounted) message = { text: "Erreur de suppression : " + delError.message, type: 'error' }; return; }
       }
 
       const validRanks = ranks.filter(r => r.nom_rang.trim() !== '');
@@ -234,19 +145,13 @@
       if (ranksToUpdate.length > 0) {
         const upsertPromise = supabase.from('rank').upsert(ranksToUpdate);
         const { error } = await Promise.race([upsertPromise, timeoutPromise]);
-        if (error) {
-          if (isComponentMounted) message = { text: "Erreur MAJ : " + error.message, type: 'error' };
-          return;
-        }
+        if (error) { if (isComponentMounted) message = { text: "Erreur MAJ : " + error.message, type: 'error' }; return; }
       }
 
       if (ranksToInsert.length > 0) {
         const insertPromise = supabase.from('rank').insert(ranksToInsert);
         const { error } = await Promise.race([insertPromise, timeoutPromise]);
-        if (error) {
-          if (isComponentMounted) message = { text: "Erreur Création : " + error.message, type: 'error' };
-          return;
-        }
+        if (error) { if (isComponentMounted) message = { text: "Erreur Création : " + error.message, type: 'error' }; return; }
       }
 
       if (isComponentMounted) {
@@ -254,37 +159,28 @@
         await fetchData();
       }
     } catch (error) {
-      console.warn("Erreur sauvegarde rangs :", error);
-      if (isComponentMounted) message = { text: "Délai de transmission dépassé par le réseau.", type: 'error' };
+      if (isComponentMounted) message = { text: "Délai de transmission dépassé.", type: 'error' };
     } finally {
       if (isComponentMounted) isSaving = false;
     }
   }
 
-  // --- LOGIQUE : MESSAGERIE ---
   async function deleteMessage(id: number) {
     if (!isComponentMounted) return;
     if (!confirm("Voulez-vous vraiment supprimer ce message définitivement ?")) return;
 
     try {
-      const timeoutPromise = new Promise<any>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout suppression message")), 3000)
-      );
-
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
       const deletePromise = supabase.from('messagerie').delete().eq('id', id);
       const { error } = await Promise.race([deletePromise, timeoutPromise]);
 
       if (error) {
-        if (isComponentMounted) message = { text: "Erreur lors de la suppression : " + error.message, type: 'error' };
+        if (isComponentMounted) message = { text: "Erreur : " + error.message, type: 'error' };
       } else {
-        if (isComponentMounted) {
-          inboxMessages = inboxMessages.filter(m => m.id !== id);
-          message = { text: "Message supprimé avec succès.", type: 'success' };
-        }
+        if (isComponentMounted) { inboxMessages = inboxMessages.filter(m => m.id !== id); message = { text: "Message supprimé.", type: 'success' }; }
       }
     } catch (error) {
-      console.warn("Erreur suppression message :", error);
-      if (isComponentMounted) message = { text: "Action interrompue suite à une instabilité réseau.", type: 'error' };
+      if (isComponentMounted) message = { text: "Action interrompue (réseau).", type: 'error' };
     }
   }
 </script>

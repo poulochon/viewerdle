@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.2.1",
-	"changelog": " Mise à jour v0.2.1 !\\n\\n- Ajout d'un système de notification des mises à jour.\\n- Amélioration du chargement de la page pour ajouter de l'anti-freeze. Il y a encore un temps de chargement parfois, je continue de travailler dessus :( #triste",
+	"version": "0.2.2",
+	"changelog": " Mise à jour v0.2.2 !\\n\\n- Ajout d'un système de notification des mises à jour.\\n- Amélioration du chargement de la page pour ajouter de l'anti-freeze. Normalement ca devrait être résolu",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
