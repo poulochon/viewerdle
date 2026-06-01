@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
-  import { version } from '../../package.json';
+  // ON IMPORTE LE NOUVEAU CHAMP ICI :
+  import { version, changelog } from '../../package.json';
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabaseClient';
 
@@ -8,6 +9,9 @@
 
   let profile = $state<any>(null);
   let isAdmin = $state(false);
+
+  // État de la popup de mise à jour
+  let showUpdatePopup = $state(false);
 
   // Sécurité anti-freeze : contrôle d'existence du composant
   let isComponentMounted = false;
@@ -20,6 +24,16 @@
 
   onMount(() => {
     isComponentMounted = true;
+
+    // --- VÉRIFICATION DE LA VERSION ---
+    // On vérifie le localStorage du navigateur
+    const savedVersion = localStorage.getItem('viewerdle_version');
+
+    // Si la version sauvegardée est différente de la version actuelle ET qu'il y a un message
+    if (savedVersion !== version && changelog) {
+      showUpdatePopup = true;
+    }
+    // ----------------------------------
 
     // 1. Chargement initial de la session
     const initSession = async () => {
@@ -36,7 +50,7 @@
 
     // 2. Écouteur des changements de session (Connexion / Déconnexion)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
-      if (!isComponentMounted) return; // On ignore si la page est détruite
+      if (!isComponentMounted) return;
 
       if (session?.user) {
         await fetchProfile(session.user.id);
@@ -46,7 +60,6 @@
       }
     });
 
-    // NETTOYAGE CRUCIAL : C'est cette ligne qui évite le gel du navigateur au réveil de l'onglet !
     return () => {
       isComponentMounted = false;
       subscription.unsubscribe();
@@ -61,30 +74,32 @@
         setTimeout(() => reject(new Error("Timeout de la barre de navigation")), 4000)
       );
 
-      // On lance les deux requêtes en parallèle pour gagner du temps
       const dbRequests = Promise.all([
         supabase.from('profil_viewer').select('pseudo').eq('id', userId).maybeSingle(),
         supabase.from('viewer_droit').select('id_droit').eq('id_viewer', userId).eq('id_droit', 1).maybeSingle()
       ]);
 
-      // Course contre le chrono
       const [profileRes, adminRes] = await Promise.race([dbRequests, timeoutPromise]);
 
       if (isComponentMounted) {
-        // Mise à jour du profil
         if (profileRes.data && !profileRes.error) {
           profile = profileRes.data;
         } else {
           profile = null;
         }
-
-        // Mise à jour des droits Admin
         isAdmin = !!adminRes.data;
       }
     } catch (error) {
       console.warn("Délai dépassé ou erreur réseau pour le profil global :", error);
-      // En cas de timeout, on conserve le profil existant s'il y en a déjà un en mémoire
     }
+  }
+
+  // --- FONCTION POUR FERMER LA POPUP ---
+  function closeUpdatePopup() {
+    // On enregistre la nouvelle version en local pour ne plus l'afficher
+    localStorage.setItem('viewerdle_version', version);
+    // On cache la popup
+    showUpdatePopup = false;
   }
 </script>
 
@@ -130,3 +145,30 @@
     {@render children()}
   </main>
 </div>
+
+{#if showUpdatePopup}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+    <div class="relative w-full max-w-lg bg-slate-900 border border-fuchsia-500/40 rounded-3xl p-8 shadow-[0_0_50px_rgba(217,70,239,0.15)] flex flex-col items-center text-center">
+
+      <div class="absolute -top-4 bg-slate-950 px-4 py-1.5 rounded-full border border-fuchsia-500/50 text-xs font-black uppercase tracking-widest text-fuchsia-400 shadow-[0_0_15px_rgba(217,70,239,0.3)]">
+        Version {version}
+      </div>
+
+      <h2 class="text-2xl font-black uppercase tracking-widest text-teal-300 mb-6 mt-2">
+        Nouvelle version !
+      </h2>
+
+      <div class="w-full bg-slate-950/50 border border-indigo-500/20 rounded-xl p-5 mb-8 text-left text-sm text-indigo-200/80 leading-relaxed">
+          {@html changelog.replace(/\\n|\n/g, '<br />')}
+        </div>
+
+      <button
+        onclick={closeUpdatePopup}
+        class="w-full bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.1)] hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] cursor-pointer"
+      >
+        J'ai compris, fermer
+      </button>
+
+    </div>
+  </div>
+{/if}
