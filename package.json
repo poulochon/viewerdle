@@ -2,7 +2,7 @@
 	"name": "viewerdle",
 	"private": true,
 	"version": "0.2.3",
-	"changelog": " Mise à jour v0.2.3 !\\n\\n- Ajout du nombre de joueur ayant joué aujourd'hui sur la page d'accueil, avec le détail quand on clique dessus",
+	"changelog": " Mise à jour v0.2.3 !\\n\\n- Ajout du nombre de joueur ayant joué aujourd'hui sur la page d'accueil, avec le détail quand on clique dessus\\n\\n- Changement de l'animation quand on devine un joueur",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

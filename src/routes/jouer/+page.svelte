@@ -267,42 +267,50 @@
         </div>
       {/if}
 
-      {#each guesses as guess}
-        <div class="flex w-full gap-1.5 md:gap-3 items-stretch">
+      {#each guesses as guess, rowIndex (guess.id)}
+          <div class="flex w-full gap-1.5 md:gap-3 items-stretch">
 
-          <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md border border-indigo-500/30 rounded-xl p-2 md:p-4 font-black text-[10px] md:text-sm text-indigo-100 shadow-lg z-10">
-            <span class="break-words text-center line-clamp-2 leading-tight">{guess.pseudo}</span>
-          </div>
-
-          {#each guess.results as res, i}
-            <div
-              class="flex-1 min-w-0 flex flex-col items-center justify-center p-1 md:p-3 text-center border rounded-xl shadow-lg flip-card
-              {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}"
-              style="animation-delay: {i * 150}ms;"
-            >
-              <span class="text-[9px] md:text-xs font-bold text-white break-words whitespace-normal leading-tight">
-                {res.value}
-              </span>
-              {#if res.hint}
-                <span class="text-[10px] md:text-xs mt-1 animate-bounce">{res.hint}</span>
-              {/if}
+            <div class="w-1/4 max-w-[90px] md:max-w-[140px] flex-shrink-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md border border-indigo-500/30 rounded-xl p-2 md:p-4 font-black text-[10px] md:text-sm text-indigo-100 shadow-lg z-10">
+              <span class="break-words text-center line-clamp-2 leading-tight">{guess.pseudo}</span>
             </div>
-          {/each}
 
-        </div>
-      {/each}
+            {#each guess.results as res, i}
+              <div
+                class="flex-1 min-w-0 flex flex-col items-center justify-center p-1 md:p-3 text-center border rounded-xl shadow-lg
+                {res.status === 'correct' ? 'bg-teal-500/20 border-teal-400' : 'bg-rose-500/10 border-rose-500/30'}
+                {rowIndex === 0 ? 'flip-card' : ''}"
+                style={rowIndex === 0 ? `animation-delay: ${i * 250}ms;` : ''}
+              >
+                <span class="text-[9px] md:text-xs font-bold text-white break-words whitespace-normal leading-tight">
+                  {res.value}
+                </span>
+                {#if res.hint}
+                  <span class="text-[10px] md:text-xs mt-1 animate-bounce">{res.hint}</span>
+                {/if}
+              </div>
+            {/each}
+
+          </div>
+        {/each}
     </div>
   {/if}
 </div>
 
 <style>
   @keyframes flipIn {
-    0% { transform: perspective(400px) rotateX(90deg); opacity: 0; }
-    100% { transform: perspective(400px) rotateX(0deg); opacity: 1; }
+    0% {
+      transform: perspective(400px) rotateX(90deg);
+      opacity: 0;
+    }
+    100% {
+      transform: perspective(400px) rotateX(0deg);
+      opacity: 1;
+    }
   }
 
   .flip-card {
+    /* Maintient la carte invisible avant que l'animation ne commence */
     opacity: 0;
-    animation: flipIn 0.5s ease-out forwards;
+    animation: flipIn 0.6s ease-out forwards;
   }
 </style>
