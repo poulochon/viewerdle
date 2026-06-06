@@ -53,10 +53,22 @@
             anecdoteCount: processedAnecdote.length
           };
 
+          // Fonction de tri optimisée :
+          // 1. Victoire d'abord (les gagnants en haut)
+          // 2. Nombre de tentatives ascendant (le plus petit nombre d'essais en premier)
           const mapPlayers = (list: any[]) => list.map((game: any) => {
             const player = allPlayers.find((p: any) => p.id === game.id_compte);
-            return { pseudo: player ? player.pseudo : 'Joueur', victoire: game.victoire, tentatives: game.tentatives };
-          }).sort((a, b) => (a.victoire === true ? -1 : 1) || a.tentatives - b.tentatives);
+            return {
+              pseudo: player ? player.pseudo : 'Joueur',
+              victoire: (game.victoire === true || String(game.victoire) === 'true'),
+              tentatives: game.tentatives
+            };
+          }).sort((a, b) => {
+            // Si l'un a gagné et l'autre non, priorité au gagnant
+            if (a.victoire !== b.victoire) return a.victoire ? -1 : 1;
+            // Sinon, tri par nombre de tentatives (le plus petit en premier)
+            return a.tentatives - b.tentatives;
+          });
 
           classiqueList = mapPlayers(processedClassique);
           anecdoteList = mapPlayers(processedAnecdote);
