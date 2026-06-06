@@ -2,7 +2,7 @@
 	"name": "viewerdle",
 	"private": true,
 	"version": "0.3.0",
-	"changelog": " Mise à jour v0.3.1 !\\n\\n- Ajout des anecdotes sur le profil\\n\\n- Implémentation des indices dans le mode classique\\n\\n- Ajout d'un mode anecdote\\n\\n Penser à ajouter vos anecdotes",
+	"changelog": " Mise à jour v0.3.0 !\\n\\n- Ajout des anecdotes sur le profil\\n\\n- Implémentation des indices dans le mode classique\\n\\n- Ajout d'un mode anecdote\\n\\n Penser à ajouter vos anecdotes",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
