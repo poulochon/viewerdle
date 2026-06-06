@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.2.3",
-	"changelog": " Mise à jour v0.2.3 !\\n\\n- Ajout du nombre de joueur ayant joué aujourd'hui sur la page d'accueil, avec le détail quand on clique dessus\\n\\n- Changement de l'animation quand on devine un joueur",
+	"version": "0.3.0",
+	"changelog": " Mise à jour v0.3.1 !\\n\\n- Ajout des anecdotes sur le profil\\n\\n- Implémentation des indices dans le mode classique\\n\\n- Ajout d'un mode anecdote\\n\\n Penser à ajouter vos anecdotes",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
