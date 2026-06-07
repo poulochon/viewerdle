@@ -181,27 +181,34 @@
   }
 
   async function checkAlreadyPlayed() {
-      if (!isComponentMounted) return;
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+        if (!isComponentMounted) return;
+        try {
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
+          const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
-        if (session && targetViewer) {
-          const today = getLocalToday();
-          const histCheckPromise = supabase.from('historique').select('tentatives').eq('id_compte', session.user.id).eq('date_partie', today).maybeSingle();
-          const { data } = await Promise.race([histCheckPromise, timeoutPromise]);
+          if (session && targetViewer) {
+            const today = getLocalToday();
 
-          if (data && isComponentMounted) {
-            // On garde juste ces deux lignes, on a retiré la regénération visuelle des essais
-            hasWon = true;
-            victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+            // 🐛 CORRECTION ICI : On précise qu'on cherche uniquement une victoire du mode Classique ('viewerdl')
+            const histCheckPromise = supabase.from('historique')
+              .select('tentatives')
+              .eq('id_compte', session.user.id)
+              .eq('date_partie', today)
+              .eq('type_jeu', 'viewerdl') // <--- Le filtre magique
+              .maybeSingle();
+
+            const { data } = await Promise.race([histCheckPromise, timeoutPromise]);
+
+            if (data && isComponentMounted) {
+              hasWon = true;
+              victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+            }
           }
+        } catch (error) {
+          console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
         }
-      } catch (error) {
-        console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
       }
-    }
 
   async function handleGuess(viewer: any) {
     searchQuery = ''; showSuggestions = false;
