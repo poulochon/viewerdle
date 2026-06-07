@@ -2,7 +2,7 @@
 	"name": "viewerdle",
 	"private": true,
 	"version": "0.3.1",
-	"changelog": " Mise à jour v0.3.1 !\\n\\n- de l'historique des différentes cibles\\n\\n- Ajout du nombre d'anecdotes crées",
+	"changelog": " Mise à jour v0.3.1 !\\n\\n- Ajout de l'historique des différentes cibles précédentes\\n\\n- Ajout du nombre d'anecdotes crées",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
