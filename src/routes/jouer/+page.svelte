@@ -43,53 +43,76 @@
       </p>
     </div>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-6xl">
 
-      <!-- MODE CLASSIQUE -->
-      <div class="relative bg-slate-900/80 backdrop-blur-md border border-teal-500/40 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_30px_rgba(45,212,191,0.1)] hover:shadow-[0_0_40px_rgba(45,212,191,0.2)] hover:border-teal-400 hover:-translate-y-2 transition-all group">
-        <div class="absolute -top-3 bg-slate-950 px-4 py-1 rounded-full border border-teal-500/40 text-[10px] text-teal-300 font-bold uppercase tracking-widest">
-          Opérationnel
-        </div>
+          <!-- MODE CLASSIQUE -->
+          <div class="relative bg-slate-900/80 backdrop-blur-md border border-teal-500/40 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_30px_rgba(45,212,191,0.1)] hover:shadow-[0_0_40px_rgba(45,212,191,0.2)] hover:border-teal-400 hover:-translate-y-2 transition-all group">
+            <div class="absolute -top-3 bg-slate-950 px-4 py-1 rounded-full border border-teal-500/40 text-[10px] text-teal-300 font-bold uppercase tracking-widest">
+              Opérationnel
+            </div>
 
-        <div class="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center border border-teal-500/30 mb-6 group-hover:scale-110 transition-transform">
-          <span class="text-3xl">🔍</span>
-        </div>
+            <div class="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center border border-teal-500/30 mb-6 group-hover:scale-110 transition-transform">
+              <span class="text-3xl">🔍</span>
+            </div>
 
-        <h2 class="text-2xl font-black text-white uppercase tracking-widest mb-3">Classique</h2>
-        <p class="text-sm text-indigo-200/70 mb-8 flex-1 leading-relaxed">
-          Identifiez la cible du jour en croisant ses caractéristiques. Déduisez son identité par élimination, essai après essai.
-        </p>
+            <h2 class="text-2xl font-black text-white uppercase tracking-widest mb-3">Classique</h2>
+            <p class="text-sm text-indigo-200/70 mb-8 flex-1 leading-relaxed">
+              Identifiez la cible du jour en croisant ses caractéristiques. Déduisez son identité par élimination, essai après essai.
+            </p>
 
-        <button
-          onclick={() => goto('/jouer/classique')}
-          class="w-full bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest text-sm px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.15)] group-hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] cursor-pointer"
-        >
-          Lancer l'investigation
-        </button>
-      </div>
-
-      <!-- MODE ANECDOTE (A SUIVRE) -->
-      <div class="relative bg-slate-900/80 backdrop-blur-md border border-amber-500/40 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_30px_rgba(245,158,11,0.1)] hover:shadow-[0_0_40px_rgba(245,158,11,0.2)] hover:border-amber-400 hover:-translate-y-2 transition-all group">
-          <div class="absolute -top-3 bg-slate-950 px-4 py-1 rounded-full border border-amber-500/40 text-[10px] text-amber-300 font-bold uppercase tracking-widest">
-            Opérationnel
+            <button
+              onclick={() => goto('/jouer/classique')}
+              class="w-full bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest text-sm px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.15)] group-hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] cursor-pointer"
+            >
+              Lancer l'investigation
+            </button>
           </div>
 
-          <div class="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/30 mb-6 group-hover:scale-110 transition-transform">
-            <span class="text-3xl">📝</span>
+          <!-- MODE ANECDOTES -->
+          <div class="relative bg-slate-900/80 backdrop-blur-md border border-amber-500/40 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_30px_rgba(245,158,11,0.1)] hover:shadow-[0_0_40px_rgba(245,158,11,0.2)] hover:border-amber-400 hover:-translate-y-2 transition-all group">
+            <div class="absolute -top-3 bg-slate-950 px-4 py-1 rounded-full border border-amber-500/40 text-[10px] text-amber-300 font-bold uppercase tracking-widest">
+              Opérationnel
+            </div>
+
+            <div class="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/30 mb-6 group-hover:scale-110 transition-transform">
+              <span class="text-3xl">📝</span>
+            </div>
+
+            <h2 class="text-2xl font-black text-white uppercase tracking-widest mb-3">Anecdotes</h2>
+            <p class="text-sm text-indigo-200/70 mb-8 flex-1 leading-relaxed">
+              Devinez qui se cache derrière ces histoires insolites. Un mode basé sur les secrets et confidences des joueurs.
+            </p>
+
+            <button
+              onclick={() => goto('/jouer/anecdotes')}
+              class="w-full bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-black uppercase tracking-widest text-sm px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)] group-hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] cursor-pointer"
+            >
+              Lancer l'enquête
+            </button>
           </div>
 
-          <h2 class="text-2xl font-black text-white uppercase tracking-widest mb-3">Anecdotes</h2>
-          <p class="text-sm text-indigo-200/70 mb-8 flex-1 leading-relaxed">
-            Devinez qui se cache derrière ces histoires insolites. Un mode basé sur les secrets et confidences des joueurs.
-          </p>
+          <!-- NOUVEAU : MODE VERSUS -->
+          <div class="relative bg-slate-900/80 backdrop-blur-md border border-purple-500/40 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_30px_rgba(168,85,247,0.1)] hover:shadow-[0_0_40px_rgba(168,85,247,0.2)] hover:border-purple-400 hover:-translate-y-2 transition-all group">
+            <div class="absolute -top-3 bg-slate-950 px-4 py-1 rounded-full border border-purple-500/40 text-[10px] text-purple-300 font-bold uppercase tracking-widest animate-pulse">
+              Nouveau
+            </div>
 
-          <button
-            onclick={() => goto('/jouer/anecdotes')}
-            class="w-full bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-black uppercase tracking-widest text-sm px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)] group-hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] cursor-pointer"
-          >
-            Lancer l'enquête
-          </button>
-        </div>
+            <div class="w-16 h-16 bg-purple-500/10 rounded-2xl flex items-center justify-center border border-purple-500/30 mb-6 group-hover:scale-110 transition-transform">
+              <span class="text-3xl">⚔️</span>
+            </div>
+
+            <h2 class="text-2xl font-black text-white uppercase tracking-widest mb-3">Versus</h2>
+            <p class="text-sm text-indigo-200/70 mb-8 flex-1 leading-relaxed">
+              Affrontez un autre enquêteur en temps réel dans un face-à-face impitoyable inspiré du célèbre jeu "Qui est-ce ?".
+            </p>
+
+            <button
+              onclick={() => goto('/jouer/versus')}
+              class="w-full bg-purple-500/10 border-2 border-purple-500/40 hover:bg-purple-500/20 text-purple-300 font-black uppercase tracking-widest text-sm px-6 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(168,85,247,0.15)] group-hover:shadow-[0_0_25px_rgba(168,85,247,0.3)] cursor-pointer"
+            >
+              Rejoindre le Lobby
+            </button>
+          </div>
 
     </div>
   {/if}

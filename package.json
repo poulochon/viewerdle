@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.3.2",
-	"changelog": " Mise à jour v0.3.2 !\\n\\n- Correction bug dans le mode classique",
+	"version": "0.4.0",
+	"changelog": " Mise à jour v0.4.0 !\\n\\n- Ajout du nouveau mode Versus",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
