@@ -273,15 +273,21 @@
         {/if}
       </div>
     {:else}
-      <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)]">
-        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Vous avez trouvé !</h2>
-        <p class="text-indigo-100 text-lg">
-          Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
-          en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
-        </p>
-        <p class="text-indigo-300/60 mt-6 uppercase tracking-widest text-xs font-bold">Revenez demain pour une nouvelle partie !</p>
-      </div>
-    {/if}
+          <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)] flex flex-col items-center">
+            <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Vous avez trouvé !</h2>
+            <p class="text-indigo-100 text-lg mb-8">
+              Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
+              en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
+            </p>
+
+            <button
+              onclick={() => goto('/jouer/anecdotes')}
+              class="bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)] hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
+            >
+              <span class="text-xl">📝</span> Enchaîner avec le mode Anecdotes
+            </button>
+          </div>
+        {/if}
 
     <div class="w-full max-w-4xl mb-12 bg-slate-900/60 backdrop-blur-md border border-amber-500/20 rounded-3xl p-6 md:p-8 shadow-xl animate-fade-in z-20">
       <h2 class="text-sm font-black uppercase tracking-widest text-amber-400 mb-6 flex items-center gap-3">
