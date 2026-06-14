@@ -14,6 +14,8 @@
   let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
   let errorMessage = $state('');
 
+  let hasPlayedClassic = $state(false);
+
   let isComponentMounted = false;
 
   // 💡 Tri automatique des indices de la cible (Simple -> Moyen -> Niche)
@@ -100,12 +102,11 @@
     const today = getLocalToday();
     const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout BDD")), 4000));
 
-    // 1. Récupération de la snapshot du jour (commune avec le mode classique)
+    // 1. Récupération de la snapshot du jour
     let snapPromise = supabase.from('joueur_daily_caracteristique').select('id_compte, pseudo, indices').eq('date_jour', today);
     let { data: dailySnapshots } = await Promise.race([snapPromise, timeoutPromise]);
 
     if ((!dailySnapshots || dailySnapshots.length === 0) && isComponentMounted) {
-      // Si la snapshot n'existe pas encore, on la crée
       const liveViewersPromise = supabase.from('profil_viewer').select('id, pseudo, caracteristiques, indices');
       const { data: liveViewers } = await Promise.race([liveViewersPromise, timeoutPromise]);
 
@@ -139,13 +140,12 @@
       }));
     }
 
-    // 2. Vérification de la cible historique spécifique au mode 'anecdotes'
+    // 2. Vérification de la cible historique
     let histPromise = supabase.from('historique_cibles').select('id_compte, indices').eq('date_cible', today).eq('type_jeu', 'anecdotes').maybeSingle();
     let { data: histData } = await Promise.race([histPromise, timeoutPromise]);
 
-    // 3. Tirage d'une nouvelle cible si aucune n'existe pour aujourd'hui
+    // 3. Tirage d'une nouvelle cible si besoin
     if (!histData && allViewers.length > 0 && isComponentMounted) {
-      // FILTRE CRUCIAL : Uniquement les joueurs ayant au moins 1 indice
       const eligibleTargets = allViewers.filter(v => v.indices && v.indices.length > 0);
 
       if (eligibleTargets.length === 0) {
@@ -174,7 +174,7 @@
       }
     }
 
-    // 4. Initialisation de la partie
+    // 4. Initialisation
     if (histData && isComponentMounted) {
       const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
       targetViewer = {
@@ -185,6 +185,7 @@
     }
   }
 
+  // 🔄 Chargement de l'état persistant depuis la table historique_proposition et vérification du mode Classique
   async function checkAlreadyPlayed() {
     if (!isComponentMounted) return;
     try {
@@ -194,14 +195,49 @@
 
       if (session && targetViewer) {
         const today = getLocalToday();
-        // Vérification spécifique au mode anecdotes
-        const histCheckPromise = supabase.from('historique').select('tentatives').eq('id_compte', session.user.id).eq('date_partie', today).eq('type_jeu', 'anecdotes').maybeSingle();
-        const { data } = await Promise.race([histCheckPromise, timeoutPromise]);
 
-        if (data && isComponentMounted) {
-          guesses = Array.from({ length: data.tentatives }).map((_, i) => ({ id: `dummy-${i}`, pseudo: 'Tentative passée', isCorrect: false }));
-          hasWon = true;
-          victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+        // Vérification : a-t-il déjà gagné le mode Classique aujourd'hui ?
+        const { data: classicData } = await supabase.from('historique')
+          .select('tentatives')
+          .eq('id_compte', session.user.id)
+          .eq('date_partie', today)
+          .eq('type_jeu', 'viewerdl')
+          .maybeSingle();
+
+        if (classicData) {
+          hasPlayedClassic = true;
+        }
+
+        // Vérification de la persistance des essais sur le mode Anecdotes
+        const propsCheckPromise = supabase.from('historique_proposition')
+          .select('id_proposition, is_correct, tentative_num')
+          .eq('id_joueur', session.user.id)
+          .eq('type_jeu', 'anecdotes')
+          .gte('created_at', `${today}T00:00:00`)
+          .order('tentative_num', { ascending: false });
+
+        const { data: pastPropositions } = await Promise.race([propsCheckPromise, timeoutPromise]);
+
+        if (pastPropositions && pastPropositions.length > 0 && isComponentMounted) {
+
+          let restoredGuesses = [];
+          let foundVictory = false;
+          let maxTentatives = pastPropositions[0].tentative_num;
+
+          for (const prop of pastPropositions) {
+            const viewer = allViewers.find(v => v.id === prop.id_proposition);
+            if (viewer) {
+              restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, isCorrect: prop.is_correct });
+              if (prop.is_correct) foundVictory = true;
+            }
+          }
+
+          guesses = restoredGuesses;
+
+          if (foundVictory) {
+            hasWon = true;
+            victoryInfo = { tentatives: maxTentatives, pseudo: targetViewer.pseudo };
+          }
         }
       }
     } catch (error) {
@@ -209,34 +245,50 @@
     }
   }
 
+  // 📊 Sauvegarde de chaque essai dans la base d'analytics
   async function handleGuess(viewer: any) {
     searchQuery = ''; showSuggestions = false;
 
     const isCorrect = viewer.id === targetViewer.id;
 
-    // On ajoute en haut de la liste pour l'affichage chronologique inverse
+    // Mise à jour visuelle instantanée
     guesses = [{ id: viewer.id, pseudo: viewer.pseudo, isCorrect }, ...guesses];
 
     if (isCorrect) {
       hasWon = true;
       victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
       confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+    }
 
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+
+        // 1. Enregistrement analytique
+        supabase.from('historique_proposition').insert({
+          id_joueur: session.user.id,
+          id_proposition: viewer.id,
+          is_correct: isCorrect,
+          tentative_num: guesses.length,
+          type_jeu: 'anecdotes'
+        }).then(({error}) => {
+           if (error) console.warn("Erreur sauvegarde proposition analytique", error);
+        });
+
+        // 2. Enregistrement victoire globale si trouvé
+        if (isCorrect) {
           supabase.from('historique').insert({
             id_compte: session.user.id,
             victoire: true,
             tentatives: guesses.length,
-            type_jeu: 'anecdotes' // On précise bien le mode !
+            type_jeu: 'anecdotes'
           }).then(({error}) => {
              if (error) console.warn("Erreur sauvegarde victoire", error);
           });
         }
-      } catch (err) {
-        console.warn("Impossible de sauvegarder l'historique.", err);
       }
+    } catch (err) {
+      console.warn("Impossible de sauvegarder l'historique.", err);
     }
   }
 </script>
@@ -266,14 +318,29 @@
         {/if}
       </div>
     {:else}
-      <!-- MESSAGE DE VICTOIRE -->
-      <div class="mb-12 p-8 bg-emerald-500/10 border border-emerald-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(16,185,129,0.1)] animate-fade-in">
+      <!-- MESSAGE DE VICTOIRE AVEC BOUTON DYNAMIQUE -->
+      <div class="mb-12 p-8 bg-emerald-500/10 border border-emerald-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(16,185,129,0.1)] animate-fade-in flex flex-col items-center">
         <h2 class="text-3xl font-black text-emerald-300 uppercase tracking-widest mb-4">Dossier classé !</h2>
-        <p class="text-emerald-100 text-lg">
+        <p class="text-emerald-100 text-lg mb-8">
           Vous avez démasqué <span class="font-black text-emerald-400">{victoryInfo?.pseudo}</span>
           en <span class="font-black text-emerald-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
         </p>
-        <p class="text-emerald-300/60 mt-6 uppercase tracking-widest text-xs font-bold">Revenez demain pour une nouvelle enquête !</p>
+
+        {#if !hasPlayedClassic}
+          <button
+            onclick={() => goto('/jouer/classique')}
+            class="bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.15)] hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
+          >
+            <span class="text-xl">🔍</span> Enchaîner avec le mode Classique
+          </button>
+        {:else}
+          <button
+            onclick={() => goto('/jouer')}
+            class="bg-slate-800 border-2 border-slate-700 hover:bg-slate-700 text-slate-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all cursor-pointer flex items-center gap-3"
+          >
+            <span class="text-xl">🏠</span> Retour aux modes de jeu
+          </button>
+        {/if}
       </div>
     {/if}
 
@@ -323,7 +390,9 @@
           {#each guesses as guess, i (guess.id + i)}
             <div class="flex items-center justify-between p-3 bg-rose-500/5 border border-rose-500/20 rounded-xl animate-fade-in flip-card">
               <span class="text-rose-200 font-bold text-sm line-clamp-1">{guess.pseudo}</span>
-              <span class="text-rose-500/50 text-xs uppercase tracking-widest font-black">Erreur</span>
+              <span class="text-rose-500/50 text-xs uppercase tracking-widest font-black">
+                {guess.isCorrect ? 'Démasqué' : 'Erreur'}
+              </span>
             </div>
           {/each}
         </div>

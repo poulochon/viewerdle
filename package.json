@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.4.1",
-	"changelog": " Mise à jour v0.4.2 !\\n\\n- Ajout d'un bouton pour passer du mode classique à anecdotes",
+	"version": "0.4.2",
+	"changelog": " Mise à jour v0.4.2 !\\n\\n- Fixe glitch sur les tentatives, gg kadjh et asdaile",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

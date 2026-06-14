@@ -181,34 +181,75 @@
   }
 
   async function checkAlreadyPlayed() {
-        if (!isComponentMounted) return;
-        try {
-          const sessionPromise = supabase.auth.getSession();
-          const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
-          const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+      if (!isComponentMounted) return;
+      try {
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
-          if (session && targetViewer) {
-            const today = getLocalToday();
+        if (session && targetViewer) {
+          const today = getLocalToday();
 
-            // 🐛 CORRECTION ICI : On précise qu'on cherche uniquement une victoire du mode Classique ('viewerdl')
-            const histCheckPromise = supabase.from('historique')
-              .select('tentatives')
-              .eq('id_compte', session.user.id)
-              .eq('date_partie', today)
-              .eq('type_jeu', 'viewerdl') // <--- Le filtre magique
-              .maybeSingle();
+          // 1. On interroge la nouvelle table pour récupérer TOUTES les tentatives d'aujourd'hui
+          // gte = Greater Than or Equal (supérieur ou égal à aujourd'hui à minuit)
+          const propsCheckPromise = supabase.from('historique_proposition')
+            .select('id_proposition, is_correct, tentative_num')
+            .eq('id_joueur', session.user.id)
+            .eq('type_jeu', 'viewerdl')
+            .gte('created_at', `${today}T00:00:00`)
+            .order('tentative_num', { ascending: false }); // Ordre décroissant pour avoir le plus récent en haut
 
-            const { data } = await Promise.race([histCheckPromise, timeoutPromise]);
+          const { data: pastPropositions } = await Promise.race([propsCheckPromise, timeoutPromise]);
 
-            if (data && isComponentMounted) {
+          if (pastPropositions && pastPropositions.length > 0 && isComponentMounted) {
+
+            let restoredGuesses = [];
+            let foundVictory = false;
+            let maxTentatives = pastPropositions[0].tentative_num; // Le numéro de la dernière tentative
+
+            // 2. On reconstruit visuellement le plateau ligne par ligne
+            for (const prop of pastPropositions) {
+              const viewer = allViewers.find(v => v.id === prop.id_proposition);
+
+              if (viewer) {
+                // On recalcule les cases (vert/rouge) pour cette ancienne proposition
+                const results = criteres.map(crit => {
+                  const val = viewer.caracteristiques?.[crit.cle];
+                  const targetVal = targetViewer.caracteristiques?.[crit.cle];
+                  const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+
+                  let displayValue = val;
+                  if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
+                  if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
+
+                  let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
+
+                  return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
+                });
+
+                // On l'ajoute au tableau
+                restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
+
+                if (prop.is_correct) {
+                  foundVictory = true;
+                }
+              }
+            }
+
+            // 3. On met à jour l'interface d'un seul coup
+            guesses = restoredGuesses;
+
+            // 4. Si la victoire faisait partie des anciennes tentatives, on valide le jeu
+            if (foundVictory) {
               hasWon = true;
-              victoryInfo = { tentatives: data.tentatives, pseudo: targetViewer.pseudo };
+              victoryInfo = { tentatives: maxTentatives, pseudo: targetViewer.pseudo };
             }
           }
-        } catch (error) {
-          console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
         }
+      } catch (error) {
+        console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
       }
+    }
 
   async function handleGuess(viewer: any) {
       searchQuery = ''; showSuggestions = false;
