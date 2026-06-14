@@ -252,7 +252,6 @@
         console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
       }
     }
-    }
 
   async function handleGuess(viewer: any) {
       searchQuery = ''; showSuggestions = false;
