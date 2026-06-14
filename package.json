@@ -2,7 +2,7 @@
 	"name": "viewerdle",
 	"private": true,
 	"version": "0.4.1",
-	"changelog": " Mise à jour v0.4.1 !\\n\\n- Ajout d'un bouton pour passer du mode classique à anecdotes",
+	"changelog": " Mise à jour v0.4.2 !\\n\\n- Ajout d'un bouton pour passer du mode classique à anecdotes",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

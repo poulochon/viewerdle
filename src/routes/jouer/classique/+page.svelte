@@ -211,43 +211,67 @@
       }
 
   async function handleGuess(viewer: any) {
-    searchQuery = ''; showSuggestions = false;
+      searchQuery = ''; showSuggestions = false;
 
-    const results = criteres.map(crit => {
-      const val = viewer.caracteristiques?.[crit.cle];
-      const targetVal = targetViewer.caracteristiques?.[crit.cle];
-      const isCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+      // On vérifie si c'est la bonne réponse
+      const isCorrect = viewer.id === targetViewer.id;
 
-      let displayValue = val;
-      if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
-      if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
+      const results = criteres.map(crit => {
+        const val = viewer.caracteristiques?.[crit.cle];
+        const targetVal = targetViewer.caracteristiques?.[crit.cle];
+        const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
 
-      let hint = (!isCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
+        let displayValue = val;
+        if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
+        if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
 
-      return { value: displayValue, status: isCorrect ? 'correct' : 'incorrect', hint };
-    });
+        let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
 
-    guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
+        return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
+      });
 
-    if (viewer.id === targetViewer.id) {
-      hasWon = true;
-      victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
-      confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+      // On ajoute la tentative visuellement pour le joueur
+      guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
 
+      // Mise à jour visuelle instantanée si c'est gagné
+      if (isCorrect) {
+        hasWon = true;
+        victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
+        confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+      }
+
+      // 📡 COMMUNICATION BASE DE DONNÉES EN ARRIÈRE-PLAN
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          supabase.from('historique').insert({
-            id_compte: session.user.id, victoire: true, tentatives: guesses.length, type_jeu: 'viewerdl'
+
+          // 1. On sauvegarde la proposition dans la nouvelle table analytique
+          supabase.from('historique_proposition').insert({
+            id_joueur: session.user.id,
+            id_proposition: viewer.id,
+            is_correct: isCorrect,
+            tentative_num: guesses.length,
+            type_jeu: 'viewerdl'
           }).then(({error}) => {
-             if (error) console.warn("Erreur sauvegarde victoire", error);
+             if (error) console.warn("Erreur sauvegarde proposition analytique", error);
           });
+
+          // 2. Si c'est gagné, on enregistre aussi la victoire globale comme avant
+          if (isCorrect) {
+            supabase.from('historique').insert({
+              id_compte: session.user.id,
+              victoire: true,
+              tentatives: guesses.length,
+              type_jeu: 'viewerdl'
+            }).then(({error}) => {
+               if (error) console.warn("Erreur sauvegarde victoire globale", error);
+            });
+          }
         }
       } catch (err) {
-        console.warn("Impossible de sauvegarder l'historique.", err);
+        console.warn("Erreur d'historisation.", err);
       }
     }
-  }
 </script>
 
 <div class="w-full min-h-[80vh] p-4 md:p-10 flex flex-col items-center text-white">
