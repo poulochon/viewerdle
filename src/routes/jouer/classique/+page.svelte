@@ -190,29 +190,36 @@
         if (session && targetViewer) {
           const today = getLocalToday();
 
-          // 1. On interroge la nouvelle table pour récupérer TOUTES les tentatives d'aujourd'hui
-          // gte = Greater Than or Equal (supérieur ou égal à aujourd'hui à minuit)
+          // 1. VRAIE VÉRIFICATION DE VICTOIRE (La source de vérité indéniable)
+          const histCheckPromise = supabase.from('historique')
+            .select('tentatives')
+            .eq('id_compte', session.user.id)
+            .eq('date_partie', today)
+            .eq('type_jeu', 'viewerdl')
+            .maybeSingle();
+
+          // 2. RÉCUPÉRATION DU PLATEAU (Pour la persistance visuelle)
           const propsCheckPromise = supabase.from('historique_proposition')
             .select('id_proposition, is_correct, tentative_num')
             .eq('id_joueur', session.user.id)
             .eq('type_jeu', 'viewerdl')
-            .gte('created_at', `${today}T00:00:00`)
-            .order('tentative_num', { ascending: false }); // Ordre décroissant pour avoir le plus récent en haut
+            .gte('created_at', today) // Remplacé par la date brute, plus robuste
+            .order('tentative_num', { ascending: false });
 
-          const { data: pastPropositions } = await Promise.race([propsCheckPromise, timeoutPromise]);
+          // On lance les deux requêtes en parallèle pour ne pas ralentir le chargement
+          const [{ data: histData }, { data: pastPropositions }] = await Promise.all([
+            Promise.race([histCheckPromise, timeoutPromise]).catch(() => ({ data: null })),
+            Promise.race([propsCheckPromise, timeoutPromise]).catch(() => ({ data: null }))
+          ]);
 
-          if (pastPropositions && pastPropositions.length > 0 && isComponentMounted) {
+          if (!isComponentMounted) return;
 
+          // On restaure d'abord le visuel de la grille (s'il y a des données récentes)
+          if (pastPropositions && pastPropositions.length > 0) {
             let restoredGuesses = [];
-            let foundVictory = false;
-            let maxTentatives = pastPropositions[0].tentative_num; // Le numéro de la dernière tentative
-
-            // 2. On reconstruit visuellement le plateau ligne par ligne
             for (const prop of pastPropositions) {
               const viewer = allViewers.find(v => v.id === prop.id_proposition);
-
               if (viewer) {
-                // On recalcule les cases (vert/rouge) pour cette ancienne proposition
                 const results = criteres.map(crit => {
                   const val = viewer.caracteristiques?.[crit.cle];
                   const targetVal = targetViewer.caracteristiques?.[crit.cle];
@@ -226,29 +233,25 @@
 
                   return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
                 });
-
-                // On l'ajoute au tableau
                 restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
-
-                if (prop.is_correct) {
-                  foundVictory = true;
-                }
               }
             }
-
-            // 3. On met à jour l'interface d'un seul coup
             guesses = restoredGuesses;
+          }
 
-            // 4. Si la victoire faisait partie des anciennes tentatives, on valide le jeu
-            if (foundVictory) {
-              hasWon = true;
-              victoryInfo = { tentatives: maxTentatives, pseudo: targetViewer.pseudo };
-            }
+          // On verrouille la partie si on trouve une trace de victoire dans l'une ou l'autre table
+          if (histData) {
+            hasWon = true;
+            victoryInfo = { tentatives: histData.tentatives, pseudo: targetViewer.pseudo };
+          } else if (pastPropositions && pastPropositions.some(p => p.is_correct)) {
+            hasWon = true;
+            victoryInfo = { tentatives: pastPropositions[0].tentative_num, pseudo: targetViewer.pseudo };
           }
         }
       } catch (error) {
         console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
       }
+    }
     }
 
   async function handleGuess(viewer: any) {
