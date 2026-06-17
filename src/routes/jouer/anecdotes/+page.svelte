@@ -15,6 +15,7 @@
   let errorMessage = $state('');
 
   let hasPlayedClassic = $state(false);
+  let hasPlayedEmote = $state(false); // NOUVEAU : Variable pour le mode emote
 
   let isComponentMounted = false;
 
@@ -185,7 +186,7 @@
     }
   }
 
-  // 🔄 Chargement de l'état persistant depuis la table historique_proposition et vérification du mode Classique
+  // 🔄 Chargement de l'état persistant depuis la table historique_proposition et vérification des autres modes
   async function checkAlreadyPlayed() {
     if (!isComponentMounted) return;
     try {
@@ -196,16 +197,16 @@
       if (session && targetViewer) {
         const today = getLocalToday();
 
-        // Vérification : a-t-il déjà gagné le mode Classique aujourd'hui ?
-        const { data: classicData } = await supabase.from('historique')
-          .select('tentatives')
+        // NOUVEAU : On vérifie s'il a déjà gagné le mode Classique OU le mode Émote aujourd'hui
+        const { data: playedGames } = await supabase.from('historique')
+          .select('type_jeu')
           .eq('id_compte', session.user.id)
           .eq('date_partie', today)
-          .eq('type_jeu', 'viewerdl')
-          .maybeSingle();
+          .in('type_jeu', ['viewerdl', 'emote']);
 
-        if (classicData) {
-          hasPlayedClassic = true;
+        if (playedGames) {
+          hasPlayedClassic = playedGames.some((g: any) => g.type_jeu === 'viewerdl');
+          hasPlayedEmote = playedGames.some((g: any) => g.type_jeu === 'emote');
         }
 
         // Vérification de la persistance des essais sur le mode Anecdotes
@@ -318,7 +319,7 @@
         {/if}
       </div>
     {:else}
-      <!-- MESSAGE DE VICTOIRE AVEC BOUTON DYNAMIQUE -->
+      <!-- MESSAGE DE VICTOIRE AVEC BOUTONS DYNAMIQUES -->
       <div class="mb-12 p-8 bg-emerald-500/10 border border-emerald-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(16,185,129,0.1)] animate-fade-in flex flex-col items-center">
         <h2 class="text-3xl font-black text-emerald-300 uppercase tracking-widest mb-4">Dossier classé !</h2>
         <p class="text-emerald-100 text-lg mb-8">
@@ -326,12 +327,20 @@
           en <span class="font-black text-emerald-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
         </p>
 
+        <!-- CASCADE DE BOUTONS -->
         {#if !hasPlayedClassic}
           <button
             onclick={() => goto('/jouer/classique')}
             class="bg-teal-500/10 border-2 border-teal-500/40 hover:bg-teal-500/20 text-teal-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.15)] hover:shadow-[0_0_25px_rgba(45,212,191,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
           >
             <span class="text-xl">🔍</span> Enchaîner avec le mode Classique
+          </button>
+        {:else if !hasPlayedEmote}
+          <button
+            onclick={() => goto('/jouer/emote')}
+            class="bg-fuchsia-500/10 border-2 border-fuchsia-500/40 hover:bg-fuchsia-500/20 text-fuchsia-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(217,70,239,0.15)] hover:shadow-[0_0_25px_rgba(217,70,239,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
+          >
+            <span class="text-xl">🖼️</span> Enchaîner avec le mode Émotes
           </button>
         {:else}
           <button
