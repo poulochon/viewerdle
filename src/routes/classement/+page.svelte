@@ -22,6 +22,18 @@
   const getX = (index: number) => paddingX + (index / 9) * widthX;
   const getY = (points: number) => 250 - paddingY - ((points / maxPoints) * heightY);
 
+  // Dictionnaire de style pour les médailles
+  function getMedalDisplay(categorie: string) {
+    const medailles: Record<string, { icon: string, title: string, color: string }> = {
+      'og': { icon: '🌟', title: 'Pionnier OG', color: 'text-orange-400 drop-shadow-[0_0_2px_rgba(251,146,60,0.8)]' },
+      'createur': { icon: '🛠️', title: 'Créateur', color: 'text-teal-400' },
+      'streameuse': { icon: '👑', title: 'Streameuse', color: 'text-pink-400' },
+      'assiduite': { icon: '🥇', title: 'Top Assidu', color: 'text-yellow-400' },
+      'acharnes': { icon: '🔥', title: 'Pro du Hasard', color: 'text-rose-400' }
+    };
+    return medailles[categorie] || { icon: '🏅', title: categorie, color: 'text-slate-400' };
+  }
+
   onMount(() => {
     isComponentMounted = true;
     isLoading = true;
@@ -30,9 +42,10 @@
       try {
         const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
 
+        // Ajout de user_medals dans le select
         const [rankRes, playerRes] = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/rank?select=*&order=nombre_points.desc`, { headers }),
-          fetch(`${SUPABASE_URL}/rest/v1/profil_viewer?select=pseudo,historique(victoire,tentatives)`, { headers })
+          fetch(`${SUPABASE_URL}/rest/v1/profil_viewer?select=pseudo,historique(victoire,tentatives),user_medals(categorie,rank)`, { headers })
         ]);
 
         const ranks = await rankRes.json() || [];
@@ -58,10 +71,13 @@
             const currentRank = ranks.find((r: any) => score >= r.nombre_points) || ranks[ranks.length - 1] || null;
 
             return {
-              pseudo: player.pseudo || 'Joueur Inconnu', score, wins,
+              pseudo: player.pseudo || 'Joueur Inconnu',
+              score,
+              wins,
               avgTries: wins > 0 ? (totalTentatives / wins).toFixed(1) : '-',
               rankName: currentRank?.nom_rang || 'Non classé',
-              rankIcon: currentRank?.icone_url || null
+              rankIcon: currentRank?.icone_url || null,
+              userMedals: player.user_medals || [] // Récupération des médailles
             };
           });
 
@@ -145,10 +161,24 @@
                 </span>
               </div>
 
-              <div class="col-span-3 text-left font-bold text-xs md:text-sm truncate pl-2">
-                <a href="/utilisateur/{player.pseudo}" class="hover:underline hover:text-teal-300 transition-colors {player.score === 0 ? 'text-indigo-300/40' : 'text-indigo-100 group-hover:text-amber-200'}" title="Consulter le dossier de {player.pseudo}">
+              <div class="col-span-3 text-left flex items-center gap-1.5 pl-2 truncate w-full">
+                <a href="/utilisateur/{player.pseudo}" class="font-bold text-xs md:text-sm truncate hover:underline hover:text-teal-300 transition-colors {player.score === 0 ? 'text-indigo-300/40' : 'text-indigo-100 group-hover:text-amber-200'}" title="Consulter le dossier de {player.pseudo}">
                   {player.pseudo}
                 </a>
+
+                {#if player.userMedals && player.userMedals.length > 0}
+                  <div class="flex items-center gap-0.5 shrink-0 pt-0.5">
+                    {#each player.userMedals as medal}
+                      {@const style = getMedalDisplay(medal.categorie)}
+                      <span
+                        class="text-[11px] md:text-sm cursor-help {style.color} hover:scale-125 transition-transform"
+                        title="{style.title}"
+                      >
+                        {style.icon}
+                      </span>
+                    {/each}
+                  </div>
+                {/if}
               </div>
 
               <div class="col-span-2 text-center font-mono font-black text-sm md:text-lg {player.score === 0 ? 'text-indigo-300/30' : 'text-amber-400'}">
