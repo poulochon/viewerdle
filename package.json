@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.5.0",
-	"changelog": " Mise à jour v0.5.0 !\\n\\n- Ajout du nouveau mode Emotes",
+	"version": "0.6.0",
+	"changelog": " Mise à jour v0.6.0 !\\n\\n- Ajout du nouveau mode rétrospective et des médailles",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

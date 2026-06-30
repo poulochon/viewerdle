@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { supabase, SUPABASE_URL, SUPABASE_KEY } from '$lib/supabaseClient';
   import { goto } from '$app/navigation';
+  import { fade, fly } from 'svelte/transition';
+  import { backOut } from 'svelte/easing';
 
   let isLoading = $state(true);
   let stats = $state({ totalPlayers: 0, totalGames: 0, classiqueCount: 0, anecdoteCount: 0, emoteCount: 0, totalAnecdotes: 0 });
@@ -15,10 +17,14 @@
   let anecdoteList = $state<any[]>([]);
   let emoteList = $state<any[]>([]);
 
-  // Nouveaux tableaux pour l'historique des cibles
+  // Tableaux pour l'historique des cibles
   let historyClassique = $state<any[]>([]);
   let historyAnecdotes = $state<any[]>([]);
   let historyEmotes = $state<any[]>([]);
+
+  // Variables pour la pop-up du Récap Mensuel
+  let showRecapPopup = $state(false);
+  let popupKey = $state('');
 
   function getLocalToday() {
     const d = new Date();
@@ -28,7 +34,6 @@
     return `${year}-${month}-${day}`;
   }
 
-  // Petite fonction pour formater la date en JJ/MM (ex: 06/05)
   function formatDate(dateStr: string) {
     if (!dateStr) return '';
     const parts = dateStr.split('-');
@@ -46,7 +51,6 @@
         const countHeaders = { ...headers, 'Prefer': 'count=exact' };
         const today = getLocalToday();
 
-        // Ajout de la récupération de la table d'émotes et de la colonne id_emote pour les cibles
         const [playersRes, gamesCountRes, todayGamesRes, targetsRes, emotesRes] = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/profil_viewer?select=id,pseudo,indices`, { headers }),
           fetch(`${SUPABASE_URL}/rest/v1/historique?select=id`, { method: 'HEAD', headers: countHeaders }),
@@ -66,7 +70,6 @@
           const processedAnecdote = (todayGames || []).filter((g: any) => g.type_jeu === 'anecdotes');
           const processedEmote = (todayGames || []).filter((g: any) => g.type_jeu === 'emote');
 
-          // Calcul du nombre total d'anecdotes configurées par les joueurs
           const totalAnecdotesCount = allPlayers.reduce((acc: number, p: any) => {
             return acc + (p.indices && Array.isArray(p.indices) ? p.indices.length : 0);
           }, 0);
@@ -96,31 +99,20 @@
           anecdoteList = mapPlayers(processedAnecdote);
           emoteList = mapPlayers(processedEmote);
 
-          // ------------------------------------------------------------------
-          // Traitement de l'historique des cibles
-          // ------------------------------------------------------------------
           const processHistory = (type: string) => {
             return (targetsData || [])
-              .filter((t: any) => t.type_jeu === type && t.date_cible !== today) // ANTI-SPOIL: On exclut la cible du jour !
-              .slice(0, 5) // On garde uniquement les 5 derniers jours
+              .filter((t: any) => t.type_jeu === type && t.date_cible !== today)
+              .slice(0, 5)
               .map((t: any) => {
                 let targetName = 'Donnée effacée';
-
-                // Si c'est une émote, on cherche dans allEmotes via id_emote
                 if (type === 'emote') {
                   const emote = allEmotes.find((e: any) => e.id === t.id_emote);
                   if (emote) targetName = emote.nom;
-                }
-                // Sinon (Classique / Anecdote), on cherche dans allPlayers via id_compte
-                else {
+                } else {
                   const player = allPlayers.find((p: any) => p.id === t.id_compte);
                   if (player) targetName = player.pseudo;
                 }
-
-                return {
-                  date: t.date_cible,
-                  nom: targetName
-                };
+                return { date: t.date_cible, nom: targetName };
               });
           };
 
@@ -136,18 +128,88 @@
     };
 
     fetchStats();
+
+    // ==========================================
+        // LOGIQUE DE LA POP-UP : UNE FOIS PAR MOIS
+        // ==========================================
+        const checkRecapPopup = async () => {
+          try {
+            // Date de lancement officiel de la feature
+            const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
+            if (new Date() < dateOuverture) return;
+
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session && isMounted) {
+              // On se place sur le mois PRÉCÉDENT pour générer la clé
+              const prevMonthDate = new Date();
+              prevMonthDate.setDate(0); // Astuce JS : le jour 0 ramène au dernier jour du mois précédent
+
+              const yyyy = prevMonthDate.getFullYear();
+              const mm = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+
+              // La clé dépend maintenant du mois précédent (ex: 2026-06 pour une vue en Juillet)
+              popupKey = `recap_seen_${session.user.id}_${yyyy}-${mm}`;
+
+              if (!localStorage.getItem(popupKey)) {
+                showRecapPopup = true;
+              }
+            }
+          } catch (error) {
+            console.warn("Erreur session recap :", error);
+          }
+        };
+    checkRecapPopup();
+
     return () => { isMounted = false; };
   });
 
+  // Action: l'utilisateur ferme manuellement la pop-up
+  function closePopup() {
+    showRecapPopup = false;
+    if (popupKey) localStorage.setItem(popupKey, 'true');
+  }
+
+  // Action: l'utilisateur clique sur le bouton dans la pop-up
+  function goToRecap() {
+    closePopup(); // Ferme et sauvegarde pour ne pas réafficher
+    goto('/jouer/recap');
+  }
+
+  // Action: clic sur "Accéder aux jeux"
   async function handlePlayClick() {
     authMessage = '';
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { authMessage = "Veuillez vous identifier."; return; }
+      if (!session) { authMessage = "Veuillez vous identifier pour jouer."; return; }
       goto('/jouer');
     } catch (e) { authMessage = "Réseau instable."; }
   }
 
+  // Action: clic sur le GROS BOUTON "Rétrospective du mois" (accessible tout le temps)
+    async function handleRecapClick() {
+      authMessage = '';
+
+      // Vérification de l'ouverture globale
+      const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
+      if (new Date() < dateOuverture) {
+        authMessage = "Patience ! La première rétrospective arrivera le 1er Juillet.";
+        return;
+      }
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          authMessage = "Veuillez vous identifier pour voir vos statistiques.";
+          return;
+        }
+
+        goto('/jouer/recap');
+      } catch (e) {
+        authMessage = "Réseau instable.";
+      }
+    }
+
+  // Message admin
   async function handleSendMessage(e: Event) {
     e.preventDefault();
     if (!messageContent.trim()) return;
@@ -185,7 +247,7 @@
       </div>
     </div>
 
-    <!-- GRILLE DÉTAILLÉE DU JOUR PAR MODE (Passée en 3 colonnes) -->
+    <!-- GRILLE DÉTAILLÉE DU JOUR PAR MODE -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mb-12">
       <!-- ACTIVITÉ CLASSIQUE -->
       <div class="bg-slate-900/60 backdrop-blur-md border border-teal-500/30 rounded-3xl p-6 flex flex-col gap-4 shadow-lg">
@@ -221,7 +283,7 @@
         </div>
       </div>
 
-      <!-- NOUVEAU : ACTIVITÉ ÉMOTES -->
+      <!-- ACTIVITÉ ÉMOTES -->
       <div class="bg-slate-900/60 backdrop-blur-md border border-fuchsia-500/30 rounded-3xl p-6 flex flex-col gap-4 shadow-lg">
         <h3 class="text-fuchsia-400 font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2">
           Émotes <span class="bg-fuchsia-500/20 px-2 py-0.5 rounded text-[10px]">{stats.emoteCount}</span>
@@ -239,14 +301,13 @@
       </div>
     </div>
 
-    <!-- NOUVEAU BLOC : HISTORIQUE DES CIBLES (DOSSIERS CLASSÉS) -->
+    <!-- HISTORIQUE DES CIBLES (DOSSIERS CLASSÉS) -->
     <div class="w-full max-w-6xl mb-16 bg-slate-900/40 backdrop-blur-md border border-indigo-500/20 rounded-3xl p-6 md:p-8 shadow-xl">
       <h2 class="text-sm font-black uppercase tracking-widest text-indigo-300/70 mb-8 flex justify-center items-center gap-3">
         Dossiers Classés (Cibles précédentes)
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <!-- Cibles Précédentes Classique -->
         <div class="flex flex-col gap-3">
           <h3 class="text-[10px] font-black uppercase tracking-widest text-teal-400/50 text-left pl-2">Classique</h3>
           <div class="flex flex-col gap-1">
@@ -261,7 +322,6 @@
           </div>
         </div>
 
-        <!-- Cibles Précédentes Anecdotes -->
         <div class="flex flex-col gap-3">
           <h3 class="text-[10px] font-black uppercase tracking-widest text-amber-400/50 text-left pl-2">Anecdotes</h3>
           <div class="flex flex-col gap-1">
@@ -276,7 +336,6 @@
           </div>
         </div>
 
-        <!-- NOUVEAU : Cibles Précédentes Émotes -->
         <div class="flex flex-col gap-3">
           <h3 class="text-[10px] font-black uppercase tracking-widest text-fuchsia-400/50 text-left pl-2">Émotes</h3>
           <div class="flex flex-col gap-1">
@@ -295,11 +354,27 @@
 
   {/if}
 
-  <!-- RESTE DE LA PAGE (Bouton Jouer / Message Admin) -->
-  <button onclick={handlePlayClick} class="mb-20 text-sm font-black uppercase text-teal-300 border-2 border-teal-500/30 px-8 py-4 rounded-2xl hover:bg-teal-500/20 hover:scale-105 transition-all shadow-[0_0_20px_rgba(45,212,191,0.1)] cursor-pointer">
-    Accéder aux jeux
-  </button>
+  <!-- ZONE DE MESSAGE D'ERREUR BOUTONS -->
+  {#if authMessage}
+    <div transition:fly={{ y: -10, duration: 300 }} class="text-rose-400 font-bold uppercase tracking-widest text-xs mb-6 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-lg shadow-lg">
+      {authMessage}
+    </div>
+  {/if}
 
+  <!-- BOUTONS D'ACTION PRINCIPAUX -->
+  <div class="flex flex-col md:flex-row gap-6 mb-20 w-full max-w-2xl justify-center">
+
+    <button onclick={handlePlayClick} class="flex-1 text-sm font-black uppercase text-teal-300 border-2 border-teal-500/30 px-8 py-4 rounded-2xl hover:bg-teal-500/20 hover:scale-105 transition-all shadow-[0_0_20px_rgba(45,212,191,0.1)] cursor-pointer">
+      Accéder aux jeux
+    </button>
+
+    <button onclick={handleRecapClick} class="flex-1 flex items-center justify-center gap-3 text-sm font-black uppercase text-fuchsia-300 border-2 border-fuchsia-500/30 px-8 py-4 rounded-2xl hover:bg-fuchsia-500/20 hover:scale-105 transition-all shadow-[0_0_20px_rgba(217,70,239,0.1)] cursor-pointer">
+      <span class="text-xl block">📦</span> Rétrospective du mois
+    </button>
+
+  </div>
+
+  <!-- ZONE DE MESSAGE ADMIN -->
   <div class="w-full max-w-2xl bg-slate-900/60 p-6 md:p-8 rounded-3xl border border-indigo-500/20 shadow-xl">
     <h2 class="text-xs font-black uppercase tracking-widest text-indigo-300/60 mb-6 flex items-center gap-3">
       <div class="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
@@ -321,6 +396,36 @@
     </form>
   </div>
 </div>
+
+<!-- POP-UP RÉCAP MENSUEL ANIMÉE -->
+{#if showRecapPopup}
+  <div transition:fade={{ duration: 300 }} class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+    <div in:fly={{ y: 50, duration: 600, easing: backOut }} class="bg-slate-900 border border-fuchsia-500/40 rounded-3xl p-8 max-w-md w-full relative shadow-[0_0_50px_rgba(217,70,239,0.2)]">
+
+      <!-- Bouton Croix -->
+      <button onclick={closePopup} class="absolute top-4 right-4 text-slate-500 hover:text-fuchsia-400 text-xl cursor-pointer transition-colors p-2">✕</button>
+
+      <div class="text-center">
+        <span class="text-5xl mb-4 block animate-bounce drop-shadow-[0_0_15px_rgba(217,70,239,0.4)]">📦</span>
+        <h2 class="text-2xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-pink-500 mb-3">
+          Ton Récap du Mois !
+        </h2>
+        <p class="text-sm text-indigo-200/70 leading-relaxed mb-8">
+          Le mois s'achève ! Viens découvrir tes statistiques personnelles ainsi que les grands exploits de la communauté.
+        </p>
+
+        <div class="flex flex-col gap-3">
+          <button onclick={goToRecap} class="w-full bg-gradient-to-r from-fuchsia-500 to-pink-500 hover:opacity-90 text-white font-black uppercase tracking-widest text-xs py-4 rounded-xl shadow-[0_0_20px_rgba(217,70,239,0.4)] cursor-pointer transition-all hover:scale-[1.02]">
+            Découvrir mes stats
+          </button>
+          <button onclick={closePopup} class="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold uppercase tracking-widest text-[10px] py-3 rounded-xl cursor-pointer transition-all">
+            Plus tard
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar { width: 4px; }
