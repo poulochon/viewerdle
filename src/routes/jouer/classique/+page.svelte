@@ -234,26 +234,42 @@
 
           if (pastPropositions && pastPropositions.length > 0) {
             let restoredGuesses = [];
+            let lettersRevealed = 0; // NOUVEAU : On recompte les lettres révélées
+
             for (const prop of pastPropositions) {
-              const viewer = allViewers.find(v => v.id === prop.id_proposition);
-              if (viewer) {
-                const results = criteres.map(crit => {
-                  const val = viewer.caracteristiques?.[crit.cle];
-                  const targetVal = targetViewer.caracteristiques?.[crit.cle];
-                  const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
-
-                  let displayValue = val;
-                  if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
-                  if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
-
-                  let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
-
-                  return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
+              // Si id_proposition est null, c'est que c'était une révélation de lettre !
+              if (prop.id_proposition === null) {
+                lettersRevealed++;
+                const dummyResults = criteres.map(crit => ({
+                  value: '👁️', status: 'incorrect', hint: ''
+                }));
+                restoredGuesses.push({
+                  id: 'reveal-' + prop.tentative_num,
+                  pseudo: `Aide : Lettre révélée`,
+                  results: dummyResults
                 });
-                restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
+              } else {
+                const viewer = allViewers.find(v => v.id === prop.id_proposition);
+                if (viewer) {
+                  const results = criteres.map(crit => {
+                    const val = viewer.caracteristiques?.[crit.cle];
+                    const targetVal = targetViewer.caracteristiques?.[crit.cle];
+                    const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+
+                    let displayValue = val;
+                    if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
+                    if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
+
+                    let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
+
+                    return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
+                  });
+                  restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
+                }
               }
             }
             guesses = restoredGuesses;
+            revealedLettersCount = lettersRevealed; // On met à jour le compteur d'aide
           }
 
           if (histData) {
@@ -327,11 +343,43 @@
     }
 
   // NOUVEAU : Fonction pour révéler une lettre supplémentaire
-  function revealNextLetter() {
-    if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
-      revealedLettersCount++;
-    }
-  }
+  // Fonction pour révéler une lettre supplémentaire (ajoute une tentative)
+    async function revealNextLetter() {
+        if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
+          revealedLettersCount++;
+
+          const dummyResults = criteres.map(crit => ({
+            value: '👁️',
+            status: 'incorrect',
+            hint: ''
+          }));
+
+          // 1. Mise à jour visuelle (augmente le guesses.length)
+          guesses = [{
+            id: 'reveal-' + guesses.length,
+            pseudo: `Aide : Lettre n°${revealedLettersCount}`,
+            results: dummyResults
+          }, ...guesses];
+
+          // 2. 📡 Sauvegarde Analytique en BDD
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              supabase.from('historique_proposition').insert({
+                id_joueur: session.user.id,
+                id_proposition: null, // Pas de joueur ciblé, c'est une aide
+                is_correct: false,
+                tentative_num: guesses.length,
+                type_jeu: 'viewerdl'
+              }).then(({error}) => {
+                 if (error) console.warn("Erreur sauvegarde aide analytique", error);
+              });
+            }
+          } catch (err) {
+            console.warn("Erreur d'historisation de l'aide.", err);
+          }
+        }
+      }
 </script>
 
 <div class="w-full min-h-[80vh] p-4 md:p-10 flex flex-col items-center text-white">

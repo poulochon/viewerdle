@@ -186,61 +186,74 @@
   }
 
   async function checkAlreadyPlayed() {
-    if (!isComponentMounted) return;
-    try {
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
-      const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+      if (!isComponentMounted) return;
+      try {
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
-      if (session && targetViewer) {
-        const today = getLocalToday();
+        if (session && targetViewer) {
+          const today = getLocalToday();
 
-        const { data: playedGames } = await supabase.from('historique')
-          .select('type_jeu')
-          .eq('id_compte', session.user.id)
-          .eq('date_partie', today)
-          .in('type_jeu', ['viewerdl', 'emote']);
+          const { data: playedGames } = await supabase.from('historique')
+            .select('type_jeu')
+            .eq('id_compte', session.user.id)
+            .eq('date_partie', today)
+            .in('type_jeu', ['viewerdl', 'emote']);
 
-        if (playedGames) {
-          hasPlayedClassic = playedGames.some((g: any) => g.type_jeu === 'viewerdl');
-          hasPlayedEmote = playedGames.some((g: any) => g.type_jeu === 'emote');
-        }
+          if (playedGames) {
+            hasPlayedClassic = playedGames.some((g: any) => g.type_jeu === 'viewerdl');
+            hasPlayedEmote = playedGames.some((g: any) => g.type_jeu === 'emote');
+          }
 
-        const propsCheckPromise = supabase.from('historique_proposition')
-          .select('id_proposition, is_correct, tentative_num')
-          .eq('id_joueur', session.user.id)
-          .eq('type_jeu', 'anecdotes')
-          .gte('created_at', `${today}T00:00:00`)
-          .order('tentative_num', { ascending: false });
+          const propsCheckPromise = supabase.from('historique_proposition')
+            .select('id_proposition, is_correct, tentative_num')
+            .eq('id_joueur', session.user.id)
+            .eq('type_jeu', 'anecdotes')
+            .gte('created_at', `${today}T00:00:00`)
+            .order('tentative_num', { ascending: false });
 
-        const { data: pastPropositions } = await Promise.race([propsCheckPromise, timeoutPromise]);
+          const { data: pastPropositions } = await Promise.race([propsCheckPromise, timeoutPromise]);
 
-        if (pastPropositions && pastPropositions.length > 0 && isComponentMounted) {
+          if (pastPropositions && pastPropositions.length > 0 && isComponentMounted) {
 
-          let restoredGuesses = [];
-          let foundVictory = false;
-          let maxTentatives = pastPropositions[0].tentative_num;
+            let restoredGuesses = [];
+            let foundVictory = false;
+            let maxTentatives = pastPropositions[0].tentative_num;
+            let lettersRevealed = 0; // NOUVEAU
 
-          for (const prop of pastPropositions) {
-            const viewer = allViewers.find(v => v.id === prop.id_proposition);
-            if (viewer) {
-              restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, isCorrect: prop.is_correct });
-              if (prop.is_correct) foundVictory = true;
+            for (const prop of pastPropositions) {
+              // Si id_proposition est null, c'est l'aide
+              if (prop.id_proposition === null) {
+                lettersRevealed++;
+                restoredGuesses.push({
+                  id: 'reveal-' + prop.tentative_num,
+                  pseudo: `Aide : Lettre révélée`,
+                  isCorrect: false,
+                  isHelp: true
+                });
+              } else {
+                const viewer = allViewers.find(v => v.id === prop.id_proposition);
+                if (viewer) {
+                  restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, isCorrect: prop.is_correct });
+                  if (prop.is_correct) foundVictory = true;
+                }
+              }
+            }
+
+            guesses = restoredGuesses;
+            revealedLettersCount = lettersRevealed; // Synchronisation du compteur d'aide
+
+            if (foundVictory) {
+              hasWon = true;
+              victoryInfo = { tentatives: maxTentatives, pseudo: targetViewer.pseudo };
             }
           }
-
-          guesses = restoredGuesses;
-
-          if (foundVictory) {
-            hasWon = true;
-            victoryInfo = { tentatives: maxTentatives, pseudo: targetViewer.pseudo };
-          }
         }
+      } catch (error) {
+        console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
       }
-    } catch (error) {
-      console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
     }
-  }
 
   async function handleGuess(viewer: any) {
     searchQuery = ''; showSuggestions = false;
@@ -285,12 +298,36 @@
     }
   }
 
-  // NOUVEAU : Fonction pour révéler une lettre supplémentaire
-  function revealNextLetter() {
-    if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
-      revealedLettersCount++;
-    }
-  }
+  // Fonction pour révéler une lettre supplémentaire (ajoute une tentative)
+    async function revealNextLetter() {
+        if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
+          revealedLettersCount++;
+
+          guesses = [{
+            id: 'reveal-' + guesses.length,
+            pseudo: `Aide : Lettre n°${revealedLettersCount}`,
+            isCorrect: false,
+            isHelp: true // Marqueur pour le design
+          }, ...guesses];
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              supabase.from('historique_proposition').insert({
+                id_joueur: session.user.id,
+                id_proposition: null, // Pas de cible, c'est une aide
+                is_correct: false,
+                tentative_num: guesses.length,
+                type_jeu: 'anecdotes'
+              }).then(({error}) => {
+                 if (error) console.warn("Erreur sauvegarde aide analytique", error);
+              });
+            }
+          } catch (err) {
+            console.warn("Erreur d'historisation de l'aide.", err);
+          }
+        }
+      }
 </script>
 
 <div class="w-full min-h-[80vh] p-4 md:p-10 flex flex-col items-center text-white pb-20">
