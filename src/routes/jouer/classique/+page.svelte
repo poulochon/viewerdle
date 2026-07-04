@@ -15,6 +15,9 @@
   let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
   let errorMessage = $state('');
 
+  // NOUVEAU : Compteur pour les lettres révélées
+  let revealedLettersCount = $state(0);
+
   let isComponentMounted = false;
 
   // 🎯 Configuration des paliers de déblocage des indices
@@ -105,7 +108,6 @@
     if (critErr) throw critErr;
     if (isComponentMounted) criteres = critData ? critData : [];
 
-    // Récupération avec la colonne "indices"
     let snapPromise = supabase.from('joueur_daily_caracteristique').select('id_compte, pseudo, caracteristiques, indices').eq('date_jour', today);
     let { data: dailySnapshots } = await Promise.race([snapPromise, timeoutPromise]);
 
@@ -148,7 +150,6 @@
 
     if (!histData && allViewers.length > 0 && isComponentMounted) {
 
-      // 1. Filtrage des joueurs éligibles (max 2 critères vides)
       let ciblesEligibles = allViewers.filter(v => {
         const carac = v.caracteristiques || {};
         const totalCrit = criteres.length;
@@ -162,13 +163,11 @@
         return (totalCrit - filledCrit) <= 2;
       });
 
-      // 2. Sécurité anti-crash
       if (ciblesEligibles.length === 0) {
         console.warn("Aucun joueur éligible trouvé, tirage au sort sur la liste complète.");
         ciblesEligibles = allViewers;
       }
 
-      // 3. Tirage au sort sur la liste filtrée
       const randomIndex = Math.floor(Math.random() * ciblesEligibles.length);
       const randomTarget = ciblesEligibles[randomIndex];
 
@@ -212,7 +211,6 @@
         if (session && targetViewer) {
           const today = getLocalToday();
 
-          // 1. VRAIE VÉRIFICATION DE VICTOIRE
           const histCheckPromise = supabase.from('historique')
             .select('tentatives')
             .eq('id_compte', session.user.id)
@@ -220,7 +218,6 @@
             .eq('type_jeu', 'viewerdl')
             .maybeSingle();
 
-          // 2. RÉCUPÉRATION DU PLATEAU
           const propsCheckPromise = supabase.from('historique_proposition')
             .select('id_proposition, is_correct, tentative_num')
             .eq('id_joueur', session.user.id)
@@ -235,7 +232,6 @@
 
           if (!isComponentMounted) return;
 
-          // Restauration visuelle
           if (pastPropositions && pastPropositions.length > 0) {
             let restoredGuesses = [];
             for (const prop of pastPropositions) {
@@ -260,7 +256,6 @@
             guesses = restoredGuesses;
           }
 
-          // Verrouillage de la partie
           if (histData) {
             hasWon = true;
             victoryInfo = { tentatives: histData.tentatives, pseudo: targetViewer.pseudo };
@@ -301,7 +296,6 @@
         confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
       }
 
-      // 📡 COMMUNICATION BASE DE DONNÉES EN ARRIÈRE-PLAN
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
@@ -331,6 +325,13 @@
         console.warn("Erreur d'historisation.", err);
       }
     }
+
+  // NOUVEAU : Fonction pour révéler une lettre supplémentaire
+  function revealNextLetter() {
+    if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
+      revealedLettersCount++;
+    }
+  }
 </script>
 
 <div class="w-full min-h-[80vh] p-4 md:p-10 flex flex-col items-center text-white">
@@ -356,21 +357,21 @@
         {/if}
       </div>
     {:else}
-          <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)] flex flex-col items-center">
-            <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Vous avez trouvé !</h2>
-            <p class="text-indigo-100 text-lg mb-8">
-              Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
-              en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
-            </p>
+      <div class="mb-12 p-8 bg-teal-500/10 border border-teal-500/50 rounded-3xl text-center shadow-[0_0_30px_rgba(45,212,191,0.1)] flex flex-col items-center">
+        <h2 class="text-3xl font-black text-teal-300 uppercase tracking-widest mb-4">Vous avez trouvé !</h2>
+        <p class="text-indigo-100 text-lg mb-8">
+          Vous avez identifié la cible <span class="font-black text-teal-400">{victoryInfo?.pseudo}</span>
+          en <span class="font-black text-teal-400">{victoryInfo?.tentatives} {victoryInfo?.tentatives && victoryInfo.tentatives > 1 ? 'tentatives' : 'tentative'}</span>.
+        </p>
 
-            <button
-              onclick={() => goto('/jouer/anecdotes')}
-              class="bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)] hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
-            >
-              <span class="text-xl">📝</span> Enchaîner avec le mode Anecdotes
-            </button>
-          </div>
-        {/if}
+        <button
+          onclick={() => goto('/jouer/anecdotes')}
+          class="bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-black uppercase tracking-widest text-sm px-8 py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)] hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] hover:-translate-y-1 cursor-pointer flex items-center gap-3"
+        >
+          <span class="text-xl">📝</span> Enchaîner avec le mode Anecdotes
+        </button>
+      </div>
+    {/if}
 
     <div class="w-full max-w-4xl mb-12 bg-slate-900/60 backdrop-blur-md border border-amber-500/20 rounded-3xl p-6 md:p-8 shadow-xl animate-fade-in z-20">
       <h2 class="text-sm font-black uppercase tracking-widest text-amber-400 mb-6 flex items-center gap-3">
@@ -407,6 +408,29 @@
               </p>
             </div>
           {/if}
+        </div>
+      {/if}
+
+      <!-- NOUVEAU : Bloc Révélation du Pseudo -->
+      {#if !hasWon && unlockedIndicesCount >= sortedIndices.length}
+        <div class="mt-6 flex flex-col items-center gap-4 bg-slate-950/60 p-6 rounded-2xl border border-indigo-500/30 animate-fade-in shadow-inner">
+
+          {#if revealedLettersCount > 0}
+            <div class="text-xl md:text-2xl font-mono font-black tracking-widest text-teal-300 bg-slate-900 px-6 py-4 rounded-xl border border-teal-500/30 shadow-[0_0_15px_rgba(45,212,191,0.2)]">
+              <!-- Affichage lettre par lettre : si index < revealed on montre, sinon on met _ -->
+              {targetViewer.pseudo.split('').map((char: string, i: number) => i < revealedLettersCount ? char : '_').join(' ')}
+            </div>
+          {/if}
+
+          {#if revealedLettersCount < targetViewer.pseudo.length}
+            <button
+              onclick={revealNextLetter}
+              class="bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/50 text-indigo-200 text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:scale-[1.02] cursor-pointer"
+            >
+              Bloqué ? Révéler la {revealedLettersCount + 1}{revealedLettersCount === 0 ? 'ère' : 'ème'} lettre
+            </button>
+          {/if}
+
         </div>
       {/if}
     </div>

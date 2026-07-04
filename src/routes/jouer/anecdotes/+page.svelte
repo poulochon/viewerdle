@@ -15,7 +15,10 @@
   let errorMessage = $state('');
 
   let hasPlayedClassic = $state(false);
-  let hasPlayedEmote = $state(false); // NOUVEAU : Variable pour le mode emote
+  let hasPlayedEmote = $state(false);
+
+  // NOUVEAU : Compteur pour les lettres révélées
+  let revealedLettersCount = $state(0);
 
   let isComponentMounted = false;
 
@@ -103,7 +106,6 @@
     const today = getLocalToday();
     const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout BDD")), 4000));
 
-    // 1. Récupération de la snapshot du jour
     let snapPromise = supabase.from('joueur_daily_caracteristique').select('id_compte, pseudo, indices').eq('date_jour', today);
     let { data: dailySnapshots } = await Promise.race([snapPromise, timeoutPromise]);
 
@@ -141,11 +143,9 @@
       }));
     }
 
-    // 2. Vérification de la cible historique
     let histPromise = supabase.from('historique_cibles').select('id_compte, indices').eq('date_cible', today).eq('type_jeu', 'anecdotes').maybeSingle();
     let { data: histData } = await Promise.race([histPromise, timeoutPromise]);
 
-    // 3. Tirage d'une nouvelle cible si besoin
     if (!histData && allViewers.length > 0 && isComponentMounted) {
       const eligibleTargets = allViewers.filter(v => v.indices && v.indices.length > 0);
 
@@ -175,7 +175,6 @@
       }
     }
 
-    // 4. Initialisation
     if (histData && isComponentMounted) {
       const targetSnapshot = allViewers.find(v => v.id === histData.id_compte);
       targetViewer = {
@@ -186,7 +185,6 @@
     }
   }
 
-  // 🔄 Chargement de l'état persistant depuis la table historique_proposition et vérification des autres modes
   async function checkAlreadyPlayed() {
     if (!isComponentMounted) return;
     try {
@@ -197,7 +195,6 @@
       if (session && targetViewer) {
         const today = getLocalToday();
 
-        // NOUVEAU : On vérifie s'il a déjà gagné le mode Classique OU le mode Émote aujourd'hui
         const { data: playedGames } = await supabase.from('historique')
           .select('type_jeu')
           .eq('id_compte', session.user.id)
@@ -209,7 +206,6 @@
           hasPlayedEmote = playedGames.some((g: any) => g.type_jeu === 'emote');
         }
 
-        // Vérification de la persistance des essais sur le mode Anecdotes
         const propsCheckPromise = supabase.from('historique_proposition')
           .select('id_proposition, is_correct, tentative_num')
           .eq('id_joueur', session.user.id)
@@ -246,13 +242,11 @@
     }
   }
 
-  // 📊 Sauvegarde de chaque essai dans la base d'analytics
   async function handleGuess(viewer: any) {
     searchQuery = ''; showSuggestions = false;
 
     const isCorrect = viewer.id === targetViewer.id;
 
-    // Mise à jour visuelle instantanée
     guesses = [{ id: viewer.id, pseudo: viewer.pseudo, isCorrect }, ...guesses];
 
     if (isCorrect) {
@@ -265,7 +259,6 @@
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
 
-        // 1. Enregistrement analytique
         supabase.from('historique_proposition').insert({
           id_joueur: session.user.id,
           id_proposition: viewer.id,
@@ -276,7 +269,6 @@
            if (error) console.warn("Erreur sauvegarde proposition analytique", error);
         });
 
-        // 2. Enregistrement victoire globale si trouvé
         if (isCorrect) {
           supabase.from('historique').insert({
             id_compte: session.user.id,
@@ -290,6 +282,13 @@
       }
     } catch (err) {
       console.warn("Impossible de sauvegarder l'historique.", err);
+    }
+  }
+
+  // NOUVEAU : Fonction pour révéler une lettre supplémentaire
+  function revealNextLetter() {
+    if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
+      revealedLettersCount++;
     }
   }
 </script>
@@ -384,10 +383,29 @@
         </div>
       {/if}
 
+      <!-- MESSAGE DE FIN D'INDICES + NOUVEAU BOUTON DE RÉVÉLATION -->
       {#if !hasWon && unlockedIndicesCount === sortedIndices.length}
         <p class="text-center text-rose-400/60 text-xs font-bold uppercase tracking-widest mt-4">
           Tous les indices sont révélés. À vous de jouer !
         </p>
+
+        <div class="mt-6 flex flex-col items-center gap-4 bg-slate-900/60 p-6 rounded-3xl border border-amber-500/30 animate-fade-in shadow-inner">
+
+          {#if revealedLettersCount > 0}
+            <div class="text-xl md:text-2xl font-mono font-black tracking-widest text-amber-300 bg-slate-950 px-6 py-4 rounded-xl border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+              {targetViewer.pseudo.split('').map((char: string, i: number) => i < revealedLettersCount ? char : '_').join(' ')}
+            </div>
+          {/if}
+
+          {#if revealedLettersCount < targetViewer.pseudo.length}
+            <button
+              onclick={revealNextLetter}
+              class="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(245,158,11,0.1)] hover:scale-[1.02] cursor-pointer"
+            >
+              Bloqué ? Révéler la {revealedLettersCount + 1}{revealedLettersCount === 0 ? 'ère' : 'ème'} lettre
+            </button>
+          {/if}
+        </div>
       {/if}
     </div>
 
