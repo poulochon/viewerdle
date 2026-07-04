@@ -13,6 +13,8 @@
   let isSubmittingMessage = $state(false);
   let messageStatus = $state({ text: '', type: '' });
 
+  let isProfileIncomplete = $state(false);
+
   let classiqueList = $state<any[]>([]);
   let anecdoteList = $state<any[]>([]);
   let emoteList = $state<any[]>([]);
@@ -130,52 +132,76 @@
     fetchStats();
 
     // ==========================================
-        // LOGIQUE DE LA POP-UP : UNE FOIS PAR MOIS
-        // ==========================================
-        const checkRecapPopup = async () => {
+    // LOGIQUE DE LA POP-UP ET DU PROFIL
+    // ==========================================
+    const checkRecapPopup = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session && isMounted) {
+          // --- NOUVEAU : Vérification du profil pour le bandeau rouge ---
           try {
-            // Date de lancement officiel de la feature
-            const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
-            if (new Date() < dateOuverture) return;
+            const [profileRes, critRes] = await Promise.all([
+              supabase.from('profil_viewer').select('caracteristiques').eq('id', session.user.id).single(),
+              supabase.from('config_caracteristiques').select('cle').eq('actif', true)
+            ]);
 
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session && isMounted) {
-              // On se place sur le mois PRÉCÉDENT pour générer la clé
-              const prevMonthDate = new Date();
-              prevMonthDate.setDate(0); // Astuce JS : le jour 0 ramène au dernier jour du mois précédent
+            if (profileRes.data && critRes.data) {
+              const carac = profileRes.data.caracteristiques || {};
+              const totalCrit = critRes.data.length;
+              let filledCrit = 0;
 
-              const yyyy = prevMonthDate.getFullYear();
-              const mm = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+              for (const crit of critRes.data) {
+                const val = carac[crit.cle];
+                if (val !== null && val !== undefined && val !== '') filledCrit++;
+              }
 
-              // La clé dépend maintenant du mois précédent (ex: 2026-06 pour une vue en Juillet)
-              popupKey = `recap_seen_${session.user.id}_${yyyy}-${mm}`;
-
-              if (!localStorage.getItem(popupKey)) {
-                showRecapPopup = true;
+              // Si plus de 2 critères sont manquants, on active l'alerte
+              if (totalCrit - filledCrit > 2) {
+                isProfileIncomplete = true;
               }
             }
-          } catch (error) {
-            console.warn("Erreur session recap :", error);
+          } catch (e) {
+            console.warn("Erreur vérif profil :", e);
           }
-        };
+          // -------------------------------------------------------------
+
+          // Date de lancement officiel de la feature recap
+          const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
+          if (new Date() < dateOuverture) return;
+
+          // On se place sur le mois PRÉCÉDENT pour générer la clé
+          const prevMonthDate = new Date();
+          prevMonthDate.setDate(0);
+
+          const yyyy = prevMonthDate.getFullYear();
+          const mm = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+
+          popupKey = `recap_seen_${session.user.id}_${yyyy}-${mm}`;
+
+          if (!localStorage.getItem(popupKey)) {
+            showRecapPopup = true;
+          }
+        }
+      } catch (error) {
+        console.warn("Erreur session recap :", error);
+      }
+    };
     checkRecapPopup();
 
     return () => { isMounted = false; };
   });
 
-  // Action: l'utilisateur ferme manuellement la pop-up
   function closePopup() {
     showRecapPopup = false;
     if (popupKey) localStorage.setItem(popupKey, 'true');
   }
 
-  // Action: l'utilisateur clique sur le bouton dans la pop-up
   function goToRecap() {
-    closePopup(); // Ferme et sauvegarde pour ne pas réafficher
+    closePopup();
     goto('/jouer/recap');
   }
 
-  // Action: clic sur "Accéder aux jeux"
   async function handlePlayClick() {
     authMessage = '';
     try {
@@ -185,31 +211,26 @@
     } catch (e) { authMessage = "Réseau instable."; }
   }
 
-  // Action: clic sur le GROS BOUTON "Rétrospective du mois" (accessible tout le temps)
-    async function handleRecapClick() {
-      authMessage = '';
-
-      // Vérification de l'ouverture globale
-      const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
-      if (new Date() < dateOuverture) {
-        authMessage = "Patience ! La première rétrospective arrivera le 1er Juillet.";
-        return;
-      }
-
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          authMessage = "Veuillez vous identifier pour voir vos statistiques.";
-          return;
-        }
-
-        goto('/jouer/recap');
-      } catch (e) {
-        authMessage = "Réseau instable.";
-      }
+  async function handleRecapClick() {
+    authMessage = '';
+    const dateOuverture = new Date('2026-07-01T00:00:00+02:00');
+    if (new Date() < dateOuverture) {
+      authMessage = "Patience ! La première rétrospective arrivera le 1er Juillet.";
+      return;
     }
 
-  // Message admin
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        authMessage = "Veuillez vous identifier pour voir vos statistiques.";
+        return;
+      }
+      goto('/jouer/recap');
+    } catch (e) {
+      authMessage = "Réseau instable.";
+    }
+  }
+
   async function handleSendMessage(e: Event) {
     e.preventDefault();
     if (!messageContent.trim()) return;
@@ -226,6 +247,24 @@
   <h1 class="text-5xl md:text-7xl font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-indigo-300 to-fuchsia-300 mb-10 drop-shadow-[0_0_40px_rgba(99,102,241,0.2)]">
     ViewerDle
   </h1>
+
+  <!-- BANDEAU D'ALERTE PROFIL INCOMPLET -->
+  {#if isProfileIncomplete}
+    <div in:fly={{ y: -20, duration: 500 }} class="w-full max-w-2xl mx-auto mb-10 bg-rose-500/10 border-2 border-rose-500/50 rounded-2xl p-4 flex items-center gap-5 shadow-[0_0_20px_rgba(244,63,94,0.3)] animate-pulse-slow">
+      <span class="text-4xl drop-shadow-[0_0_10px_rgba(244,63,94,0.8)]">⚠️</span>
+      <div class="text-left">
+        <h3 class="text-rose-400 font-black uppercase tracking-widest text-sm mb-1">
+          Attention : Profil Incomplet
+        </h3>
+        <p class="text-rose-200/80 text-xs leading-relaxed">
+          Il te manque plus de 2 caractéristiques. Tu ne pourras pas être tiré au sort comme cible du jour !
+          <a href="/jouer/profil" class="inline-block mt-1 underline font-bold text-rose-300 hover:text-white transition-colors">
+            Compléter mon profil maintenant ➔
+          </a>
+        </p>
+      </div>
+    </div>
+  {/if}
 
   {#if isLoading}
     <p class="text-teal-300 animate-pulse text-xs uppercase tracking-widest font-mono mb-12">Synchronisation des données...</p>
@@ -431,4 +470,8 @@
   .custom-scrollbar::-webkit-scrollbar { width: 4px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 </style>

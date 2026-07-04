@@ -147,8 +147,30 @@
     let { data: histData } = await Promise.race([histPromise, timeoutPromise]);
 
     if (!histData && allViewers.length > 0 && isComponentMounted) {
-      const randomIndex = Math.floor(Math.random() * allViewers.length);
-      const randomTarget = allViewers[randomIndex];
+
+      // 1. Filtrage des joueurs éligibles (max 2 critères vides)
+      let ciblesEligibles = allViewers.filter(v => {
+        const carac = v.caracteristiques || {};
+        const totalCrit = criteres.length;
+        let filledCrit = 0;
+
+        for (const crit of criteres) {
+          const val = carac[crit.cle];
+          if (val !== null && val !== undefined && val !== '') filledCrit++;
+        }
+
+        return (totalCrit - filledCrit) <= 2;
+      });
+
+      // 2. Sécurité anti-crash
+      if (ciblesEligibles.length === 0) {
+        console.warn("Aucun joueur éligible trouvé, tirage au sort sur la liste complète.");
+        ciblesEligibles = allViewers;
+      }
+
+      // 3. Tirage au sort sur la liste filtrée
+      const randomIndex = Math.floor(Math.random() * ciblesEligibles.length);
+      const randomTarget = ciblesEligibles[randomIndex];
 
       const insertTargetPromise = supabase.from('historique_cibles').insert({
         date_cible: today,
@@ -190,7 +212,7 @@
         if (session && targetViewer) {
           const today = getLocalToday();
 
-          // 1. VRAIE VÉRIFICATION DE VICTOIRE (La source de vérité indéniable)
+          // 1. VRAIE VÉRIFICATION DE VICTOIRE
           const histCheckPromise = supabase.from('historique')
             .select('tentatives')
             .eq('id_compte', session.user.id)
@@ -198,15 +220,14 @@
             .eq('type_jeu', 'viewerdl')
             .maybeSingle();
 
-          // 2. RÉCUPÉRATION DU PLATEAU (Pour la persistance visuelle)
+          // 2. RÉCUPÉRATION DU PLATEAU
           const propsCheckPromise = supabase.from('historique_proposition')
             .select('id_proposition, is_correct, tentative_num')
             .eq('id_joueur', session.user.id)
             .eq('type_jeu', 'viewerdl')
-            .gte('created_at', today) // Remplacé par la date brute, plus robuste
+            .gte('created_at', today)
             .order('tentative_num', { ascending: false });
 
-          // On lance les deux requêtes en parallèle pour ne pas ralentir le chargement
           const [{ data: histData }, { data: pastPropositions }] = await Promise.all([
             Promise.race([histCheckPromise, timeoutPromise]).catch(() => ({ data: null })),
             Promise.race([propsCheckPromise, timeoutPromise]).catch(() => ({ data: null }))
@@ -214,7 +235,7 @@
 
           if (!isComponentMounted) return;
 
-          // On restaure d'abord le visuel de la grille (s'il y a des données récentes)
+          // Restauration visuelle
           if (pastPropositions && pastPropositions.length > 0) {
             let restoredGuesses = [];
             for (const prop of pastPropositions) {
@@ -239,7 +260,7 @@
             guesses = restoredGuesses;
           }
 
-          // On verrouille la partie si on trouve une trace de victoire dans l'une ou l'autre table
+          // Verrouillage de la partie
           if (histData) {
             hasWon = true;
             victoryInfo = { tentatives: histData.tentatives, pseudo: targetViewer.pseudo };
@@ -256,7 +277,6 @@
   async function handleGuess(viewer: any) {
       searchQuery = ''; showSuggestions = false;
 
-      // On vérifie si c'est la bonne réponse
       const isCorrect = viewer.id === targetViewer.id;
 
       const results = criteres.map(crit => {
@@ -273,10 +293,8 @@
         return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
       });
 
-      // On ajoute la tentative visuellement pour le joueur
       guesses = [{ id: viewer.id, pseudo: viewer.pseudo, results }, ...guesses];
 
-      // Mise à jour visuelle instantanée si c'est gagné
       if (isCorrect) {
         hasWon = true;
         victoryInfo = { tentatives: guesses.length, pseudo: targetViewer.pseudo };
@@ -288,7 +306,6 @@
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
 
-          // 1. On sauvegarde la proposition dans la nouvelle table analytique
           supabase.from('historique_proposition').insert({
             id_joueur: session.user.id,
             id_proposition: viewer.id,
@@ -299,7 +316,6 @@
              if (error) console.warn("Erreur sauvegarde proposition analytique", error);
           });
 
-          // 2. Si c'est gagné, on enregistre aussi la victoire globale comme avant
           if (isCorrect) {
             supabase.from('historique').insert({
               id_compte: session.user.id,

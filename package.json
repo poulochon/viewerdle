@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.6.0",
-	"changelog": " Mise à jour v0.6.0 !\\n\\n- Ajout de la rétrospective et des médailles",
+	"version": "0.6.1",
+	"changelog": " Mise à jour v0.6.1 !\\n\\n- Ajout de restriction sur la selection de la cible du jour en mode classique: tout profil ayant + de 2 critères non remplis ne peut pas être sélectionné \\n\\n- Message sur l'écran d'accueil et sur le profil si le compte n'est pas éligible pour être la cible du jour",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

@@ -11,6 +11,9 @@
   let showUpdatePopup = $state(false);
   let isComponentMounted = false;
 
+  // NOUVEAU : État pour savoir si le profil est incomplet
+  let isProfileIncomplete = $state(false);
+
   function formatPseudo(pseudo: string) {
     if (!pseudo) return '';
     return pseudo.length > 5 ? pseudo.slice(0, 5) + '..' : pseudo;
@@ -37,6 +40,7 @@
       } else {
         profile = null;
         isAdmin = false;
+        isProfileIncomplete = false;
       }
     });
 
@@ -54,15 +58,35 @@
         setTimeout(() => reject(new Error("Timeout navigation")), 10000)
       );
 
+      // MODIFIÉ : On récupère aussi les 'caracteristiques' du joueur et la config globale
       const dbRequests = Promise.all([
-        supabase.from('profil_viewer').select('pseudo').eq('id', userId).maybeSingle(),
-        supabase.from('viewer_droit').select('id_droit').eq('id_viewer', userId).eq('id_droit', 1).maybeSingle()
+        supabase.from('profil_viewer').select('pseudo, caracteristiques').eq('id', userId).maybeSingle(),
+        supabase.from('viewer_droit').select('id_droit').eq('id_viewer', userId).eq('id_droit', 1).maybeSingle(),
+        supabase.from('config_caracteristiques').select('cle').eq('actif', true)
       ]);
 
-      const [profileRes, adminRes] = await Promise.race([dbRequests, timeoutPromise]);
+      const [profileRes, adminRes, critRes] = await Promise.race([dbRequests, timeoutPromise]);
 
       if (isComponentMounted) {
-        if (profileRes.data && !profileRes.error) profile = profileRes.data;
+        if (profileRes.data && !profileRes.error) {
+          profile = profileRes.data;
+
+          // CALCUL DU PROFIL INCOMPLET
+          if (critRes.data) {
+            const carac = profile.caracteristiques || {};
+            const totalCrit = critRes.data.length;
+            let filledCrit = 0;
+
+            for (const crit of critRes.data) {
+              const val = carac[crit.cle];
+              if (val !== null && val !== undefined && val !== '') filledCrit++;
+            }
+
+            // Si plus de 2 critères manquants, on affiche l'alerte
+            isProfileIncomplete = (totalCrit - filledCrit) > 2;
+          }
+        }
+
         isAdmin = !!adminRes.data;
       }
     } catch (error) {
@@ -102,8 +126,14 @@
       {/if}
 
       {#if profile}
-        <a href="/profil" class="text-teal-300 hover:text-teal-200 hover:shadow-[0_0_10px_rgba(94,234,212,0.5)] transition-all border border-teal-500/30 bg-teal-500/10 px-4 py-2 rounded-full font-bold">
+        <a href="/profil" class="relative text-teal-300 hover:text-teal-200 hover:shadow-[0_0_10px_rgba(94,234,212,0.5)] transition-all border border-teal-500/30 bg-teal-500/10 px-4 py-2 rounded-full font-bold flex items-center gap-2">
           {formatPseudo(profile.pseudo)}
+
+          {#if isProfileIncomplete}
+            <span class="flex items-center justify-center w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse shadow-[0_0_10px_rgba(244,63,94,0.6)]" title="Profil incomplet !">
+              !
+            </span>
+          {/if}
         </a>
       {:else}
         <a href="/profil" class="hover:text-fuchsia-300 transition-all border border-fuchsia-500/20 bg-fuchsia-500/5 px-4 py-2 rounded-full">
