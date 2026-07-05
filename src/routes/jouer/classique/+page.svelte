@@ -15,7 +15,7 @@
   let victoryInfo = $state<{tentatives: number, pseudo: string} | null>(null);
   let errorMessage = $state('');
 
-  // NOUVEAU : Compteur pour les lettres révélées
+  // Compteur pour les lettres révélées
   let revealedLettersCount = $state(0);
 
   let isComponentMounted = false;
@@ -202,88 +202,88 @@
   }
 
   async function checkAlreadyPlayed() {
-      if (!isComponentMounted) return;
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+    if (!isComponentMounted) return;
+    try {
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout verif")), 3000));
+      const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
-        if (session && targetViewer) {
-          const today = getLocalToday();
+      if (session && targetViewer) {
+        const today = getLocalToday();
 
-          const histCheckPromise = supabase.from('historique')
-            .select('tentatives')
-            .eq('id_compte', session.user.id)
-            .eq('date_partie', today)
-            .eq('type_jeu', 'viewerdl')
-            .maybeSingle();
+        const histCheckPromise = supabase.from('historique')
+          .select('tentatives')
+          .eq('id_compte', session.user.id)
+          .eq('date_partie', today)
+          .eq('type_jeu', 'viewerdl')
+          .maybeSingle();
 
-          const propsCheckPromise = supabase.from('historique_proposition')
-            .select('id_proposition, is_correct, tentative_num')
-            .eq('id_joueur', session.user.id)
-            .eq('type_jeu', 'viewerdl')
-            .gte('created_at', today)
-            .order('tentative_num', { ascending: false });
+        const propsCheckPromise = supabase.from('historique_proposition')
+          .select('id_proposition, is_correct, tentative_num')
+          .eq('id_joueur', session.user.id)
+          .eq('type_jeu', 'viewerdl')
+          .gte('created_at', today)
+          .order('tentative_num', { ascending: false });
 
-          const [{ data: histData }, { data: pastPropositions }] = await Promise.all([
-            Promise.race([histCheckPromise, timeoutPromise]).catch(() => ({ data: null })),
-            Promise.race([propsCheckPromise, timeoutPromise]).catch(() => ({ data: null }))
-          ]);
+        const [{ data: histData }, { data: pastPropositions }] = await Promise.all([
+          Promise.race([histCheckPromise, timeoutPromise]).catch(() => ({ data: null })),
+          Promise.race([propsCheckPromise, timeoutPromise]).catch(() => ({ data: null }))
+        ]);
 
-          if (!isComponentMounted) return;
+        if (!isComponentMounted) return;
 
-          if (pastPropositions && pastPropositions.length > 0) {
-            let restoredGuesses = [];
-            let lettersRevealed = 0; // NOUVEAU : On recompte les lettres révélées
+        if (pastPropositions && pastPropositions.length > 0) {
+          let restoredGuesses = [];
+          let lettersRevealed = 0;
 
-            for (const prop of pastPropositions) {
-              // Si id_proposition est null, c'est que c'était une révélation de lettre !
-              if (prop.id_proposition === null) {
-                lettersRevealed++;
-                const dummyResults = criteres.map(crit => ({
-                  value: '👁️', status: 'incorrect', hint: ''
-                }));
-                restoredGuesses.push({
-                  id: 'reveal-' + prop.tentative_num,
-                  pseudo: `Aide : Lettre révélée`,
-                  results: dummyResults
+          for (const prop of pastPropositions) {
+            // Si id_proposition est null, c'est une révélation
+            if (prop.id_proposition === null) {
+              lettersRevealed++;
+              const dummyResults = criteres.map(crit => ({
+                value: '👁️', status: 'incorrect', hint: ''
+              }));
+              restoredGuesses.push({
+                id: 'reveal-' + prop.tentative_num,
+                pseudo: `Aide : Lettre révélée`,
+                results: dummyResults
+              });
+            } else {
+              const viewer = allViewers.find(v => v.id === prop.id_proposition);
+              if (viewer) {
+                const results = criteres.map(crit => {
+                  const val = viewer.caracteristiques?.[crit.cle];
+                  const targetVal = targetViewer.caracteristiques?.[crit.cle];
+                  const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
+
+                  let displayValue = val;
+                  if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
+                  if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
+
+                  let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
+
+                  return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
                 });
-              } else {
-                const viewer = allViewers.find(v => v.id === prop.id_proposition);
-                if (viewer) {
-                  const results = criteres.map(crit => {
-                    const val = viewer.caracteristiques?.[crit.cle];
-                    const targetVal = targetViewer.caracteristiques?.[crit.cle];
-                    const isCritCorrect = String(val).toLowerCase() === String(targetVal).toLowerCase();
-
-                    let displayValue = val;
-                    if (val === true || String(val).toLowerCase() === 'true') displayValue = 'Vrai';
-                    if (val === false || String(val).toLowerCase() === 'false') displayValue = 'Faux';
-
-                    let hint = (!isCritCorrect && crit.type_donnee === 'number') ? (Number(val) < Number(targetVal) ? '🔼' : '🔽') : '';
-
-                    return { value: displayValue, status: isCritCorrect ? 'correct' : 'incorrect', hint };
-                  });
-                  restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
-                }
+                restoredGuesses.push({ id: viewer.id, pseudo: viewer.pseudo, results });
               }
             }
-            guesses = restoredGuesses;
-            revealedLettersCount = lettersRevealed; // On met à jour le compteur d'aide
           }
-
-          if (histData) {
-            hasWon = true;
-            victoryInfo = { tentatives: histData.tentatives, pseudo: targetViewer.pseudo };
-          } else if (pastPropositions && pastPropositions.some(p => p.is_correct)) {
-            hasWon = true;
-            victoryInfo = { tentatives: pastPropositions[0].tentative_num, pseudo: targetViewer.pseudo };
-          }
+          guesses = restoredGuesses;
+          revealedLettersCount = lettersRevealed;
         }
-      } catch (error) {
-        console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
+
+        if (histData) {
+          hasWon = true;
+          victoryInfo = { tentatives: histData.tentatives, pseudo: targetViewer.pseudo };
+        } else if (pastPropositions && pastPropositions.some(p => p.is_correct)) {
+          hasWon = true;
+          victoryInfo = { tentatives: pastPropositions[0].tentative_num, pseudo: targetViewer.pseudo };
+        }
       }
+    } catch (error) {
+      console.warn("Vérification historique annulée suite à une instabilité réseau.", error);
     }
+  }
 
   async function handleGuess(viewer: any) {
       searchQuery = ''; showSuggestions = false;
@@ -315,7 +315,6 @@
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-
           supabase.from('historique_proposition').insert({
             id_joueur: session.user.id,
             id_proposition: viewer.id,
@@ -323,7 +322,7 @@
             tentative_num: guesses.length,
             type_jeu: 'viewerdl'
           }).then(({error}) => {
-             if (error) console.warn("Erreur sauvegarde proposition analytique", error);
+             if (error) console.warn("Erreur sauvegarde proposition", error);
           });
 
           if (isCorrect) {
@@ -333,7 +332,7 @@
               tentatives: guesses.length,
               type_jeu: 'viewerdl'
             }).then(({error}) => {
-               if (error) console.warn("Erreur sauvegarde victoire globale", error);
+               if (error) console.warn("Erreur sauvegarde victoire", error);
             });
           }
         }
@@ -342,44 +341,42 @@
       }
     }
 
-  // NOUVEAU : Fonction pour révéler une lettre supplémentaire
-  // Fonction pour révéler une lettre supplémentaire (ajoute une tentative)
-    async function revealNextLetter() {
-        if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
-          revealedLettersCount++;
+  async function revealNextLetter() {
+    if (targetViewer && revealedLettersCount < targetViewer.pseudo.length) {
+      revealedLettersCount++;
 
-          const dummyResults = criteres.map(crit => ({
-            value: '👁️',
-            status: 'incorrect',
-            hint: ''
-          }));
+      const dummyResults = criteres.map(crit => ({
+        value: '👁️',
+        status: 'incorrect',
+        hint: ''
+      }));
 
-          // 1. Mise à jour visuelle (augmente le guesses.length)
-          guesses = [{
-            id: 'reveal-' + guesses.length,
-            pseudo: `Aide : Lettre n°${revealedLettersCount}`,
-            results: dummyResults
-          }, ...guesses];
+      // Mise à jour visuelle
+      guesses = [{
+        id: 'reveal-' + guesses.length,
+        pseudo: `Aide : Lettre n°${revealedLettersCount}`,
+        results: dummyResults
+      }, ...guesses];
 
-          // 2. 📡 Sauvegarde Analytique en BDD
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-              supabase.from('historique_proposition').insert({
-                id_joueur: session.user.id,
-                id_proposition: null, // Pas de joueur ciblé, c'est une aide
-                is_correct: false,
-                tentative_num: guesses.length,
-                type_jeu: 'viewerdl'
-              }).then(({error}) => {
-                 if (error) console.warn("Erreur sauvegarde aide analytique", error);
-              });
-            }
-          } catch (err) {
-            console.warn("Erreur d'historisation de l'aide.", err);
-          }
+      // Sauvegarde BDD
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          supabase.from('historique_proposition').insert({
+            id_joueur: session.user.id,
+            id_proposition: null,
+            is_correct: false,
+            tentative_num: guesses.length,
+            type_jeu: 'viewerdl'
+          }).then(({error}) => {
+             if (error) console.warn("Erreur sauvegarde aide", error);
+          });
         }
+      } catch (err) {
+        console.warn("Erreur d'historisation de l'aide.", err);
       }
+    }
+  }
 </script>
 
 <div class="w-full min-h-[80vh] p-4 md:p-10 flex flex-col items-center text-white">
@@ -426,10 +423,18 @@
         <span class="text-xl">💡</span> Base de données d'indices
       </h2>
 
+      <!-- NOUVEAU : Bloc affichage conditionnel pour le cas où la cible n'a aucun indice -->
       {#if sortedIndices.length === 0}
-        <p class="text-slate-500 text-sm italic text-center py-4 border border-dashed border-slate-700 rounded-2xl">
-          Cible fantôme : Aucun indice n'est disponible. Vous allez devoir faire sans !
-        </p>
+        <div class="flex flex-col items-center justify-center gap-3 bg-slate-950/30 p-4 md:p-6 rounded-2xl border border-dashed border-slate-700/50">
+          <p class="text-slate-500 text-sm italic text-center">
+            Cible fantôme : Aucun indice textuel n'est disponible pour ce profil.
+          </p>
+          {#if !hasWon && guesses.length < 5}
+            <p class="text-slate-400 text-[10px] md:text-xs font-bold uppercase tracking-widest text-center mt-2 flex items-center gap-2">
+              <span class="text-slate-500 text-lg">🔒</span> Aide au démasquage débloquée à la 5ème tentative ({guesses.length}/5)
+            </p>
+          {/if}
+        </div>
       {:else}
         <div class="flex flex-col gap-3">
           {#each sortedIndices as indice, i}
@@ -459,13 +464,12 @@
         </div>
       {/if}
 
-      <!-- NOUVEAU : Bloc Révélation du Pseudo -->
-      {#if !hasWon && unlockedIndicesCount >= sortedIndices.length}
+      <!-- NOUVEAU : Le bouton apparaît si tous les indices sont débloqués OU si 0 indice mais 5 essais -->
+      {#if !hasWon && ((sortedIndices.length > 0 && unlockedIndicesCount >= sortedIndices.length) || (sortedIndices.length === 0 && guesses.length >= 5))}
         <div class="mt-6 flex flex-col items-center gap-4 bg-slate-950/60 p-6 rounded-2xl border border-indigo-500/30 animate-fade-in shadow-inner">
 
           {#if revealedLettersCount > 0}
             <div class="text-xl md:text-2xl font-mono font-black tracking-widest text-teal-300 bg-slate-900 px-6 py-4 rounded-xl border border-teal-500/30 shadow-[0_0_15px_rgba(45,212,191,0.2)]">
-              <!-- Affichage lettre par lettre : si index < revealed on montre, sinon on met _ -->
               {targetViewer.pseudo.split('').map((char: string, i: number) => i < revealedLettersCount ? char : '_').join(' ')}
             </div>
           {/if}
