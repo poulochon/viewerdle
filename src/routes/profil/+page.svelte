@@ -20,16 +20,20 @@
   // Médailles
   let userMedals = $state<any[]>([]);
 
-  // Feedbacks
+  // Feedbacks & États de sauvegarde
   let profileMessage = $state('');
   let profileError = $state('');
+  let isSavingProfile = $state(false);
+
   let indicesMessage = $state('');
   let indicesError = $state('');
   let isSavingIndices = $state(false);
+
   let oldPassword = $state('');
   let newPassword = $state('');
   let pwdMessage = $state('');
   let pwdError = $state('');
+  let isUpdatingPwd = $state(false);
 
   let isComponentMounted = false;
 
@@ -130,18 +134,44 @@
 
   async function handlePasswordUpdate() {
     pwdError = ''; pwdMessage = '';
+    if (!oldPassword || !newPassword) { pwdError = "Veuillez remplir les champs."; return; }
+
+    isUpdatingPwd = true;
     const { error: verifyError } = await supabase.auth.signInWithPassword({ email: userEmail, password: oldPassword });
-    if (verifyError) { pwdError = "Ancien mot de passe incorrect."; return; }
+
+    if (verifyError) {
+      pwdError = "Ancien mot de passe incorrect.";
+      isUpdatingPwd = false;
+      return;
+    }
+
     const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-    if (updateError) pwdError = updateError.message;
-    else { pwdMessage = "Modifié !"; oldPassword = ''; newPassword = ''; }
+    isUpdatingPwd = false;
+
+    if (updateError) {
+      pwdError = updateError.message;
+    } else {
+      pwdMessage = "Modifié !";
+      oldPassword = '';
+      newPassword = '';
+      setTimeout(() => pwdMessage = '', 3000); // Fait disparaître le message de succès après 3s
+    }
   }
 
   async function handleSaveProfile() {
     profileMessage = ''; profileError = '';
+    isSavingProfile = true;
+
     const { error } = await supabase.from('profil_viewer').update({ caracteristiques: userProfile.caracteristiques }).eq('id', userProfile.id);
-    if (error) profileError = error.message;
-    else profileMessage = "Mis à jour !";
+
+    isSavingProfile = false;
+
+    if (error) {
+      profileError = error.message;
+    } else {
+      profileMessage = "Mis à jour !";
+      setTimeout(() => profileMessage = '', 3000);
+    }
   }
 
   function addIndice() { userProfile.indices.push({ texte: '', difficulte: 'simple' }); }
@@ -149,13 +179,20 @@
 
   async function handleSaveIndices() {
     indicesMessage = ''; indicesError = '';
+
     const hasEmpty = userProfile.indices.some((i: any) => !i.texte.trim());
     if (hasEmpty) { indicesError = "Veuillez remplir tous les indices."; return; }
+
     isSavingIndices = true;
     const { error } = await supabase.from('profil_viewer').update({ indices: userProfile.indices }).eq('id', userProfile.id);
-    if (error) indicesError = error.message;
-    else indicesMessage = "Enregistrés !";
     isSavingIndices = false;
+
+    if (error) {
+      indicesError = error.message;
+    } else {
+      indicesMessage = "Enregistrés !";
+      setTimeout(() => indicesMessage = '', 3000);
+    }
   }
 </script>
 
@@ -199,9 +236,17 @@
       <div class="flex flex-col md:flex-row gap-4">
         <input type="password" bind:value={oldPassword} placeholder="Ancien MDP" class="flex-1 bg-slate-950 border border-rose-500/30 rounded-xl px-4 py-3 text-sm" />
         <input type="password" bind:value={newPassword} placeholder="Nouveau MDP" class="flex-1 bg-slate-950 border border-rose-500/30 rounded-xl px-4 py-3 text-sm" />
-        <button onclick={handlePasswordUpdate} class="bg-rose-500/10 border border-rose-500/50 text-rose-300 px-6 py-3 rounded-xl text-xs font-bold uppercase">Appliquer</button>
+        <button disabled={isUpdatingPwd} onclick={handlePasswordUpdate} class="bg-rose-500/10 border border-rose-500/50 text-rose-300 px-6 py-3 rounded-xl text-xs font-bold uppercase transition-all hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed min-w-[140px] flex items-center justify-center">
+          {#if isUpdatingPwd}
+            <span class="animate-pulse">Application...</span>
+          {:else if pwdMessage}
+            ✅ Modifié
+          {:else}
+            Appliquer
+          {/if}
+        </button>
       </div>
-      {#if pwdMessage}<p class="mt-4 text-teal-400 text-xs font-bold">{pwdMessage}</p>{/if}
+      {#if pwdError}<p class="mt-4 text-rose-400 text-xs font-bold">{pwdError}</p>{/if}
     </div>
 
     <div class="w-full p-6 md:p-8 bg-slate-900/80 border border-teal-500/30 rounded-3xl mb-10">
@@ -228,7 +273,16 @@
           </div>
         {/each}
       </div>
-      <button onclick={handleSaveProfile} class="w-full bg-teal-500/10 border-2 border-teal-500/40 text-teal-300 font-black uppercase py-4 rounded-xl hover:bg-teal-500/20">Enregistrer</button>
+      <button disabled={isSavingProfile} onclick={handleSaveProfile} class="w-full bg-teal-500/10 border-2 border-teal-500/40 text-teal-300 font-black uppercase py-4 rounded-xl transition-all hover:bg-teal-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
+        {#if isSavingProfile}
+          <span class="animate-pulse">Enregistrement en cours...</span>
+        {:else if profileMessage}
+          ✅ Modifications Enregistrées !
+        {:else}
+          Enregistrer
+        {/if}
+      </button>
+      {#if profileError}<p class="mt-4 text-rose-400 text-xs font-bold text-center">{profileError}</p>{/if}
     </div>
 
     <div class="w-full p-6 md:p-8 bg-slate-900/80 border border-amber-500/30 rounded-3xl mb-10">
@@ -246,9 +300,18 @@
             <button onclick={() => removeIndice(i)} class="text-rose-400 p-2 bg-rose-500/10 rounded-xl">✕</button>
           </div>
         {/each}
-        <button onclick={addIndice} class="w-full border border-dashed border-amber-500/40 text-amber-300/70 py-4 rounded-2xl text-xs font-black uppercase">+ Ajouter un indice</button>
+        <button onclick={addIndice} class="w-full border border-dashed border-amber-500/40 text-amber-300/70 py-4 rounded-2xl text-xs font-black uppercase hover:bg-amber-500/5 transition-colors">+ Ajouter un indice</button>
       </div>
-      <button onclick={handleSaveIndices} class="w-full bg-amber-500/10 border-2 border-amber-500/40 text-amber-400 font-black uppercase py-4 rounded-xl hover:bg-amber-500/20">Enregistrer les indices</button>
+      <button disabled={isSavingIndices} onclick={handleSaveIndices} class="w-full bg-amber-500/10 border-2 border-amber-500/40 text-amber-400 font-black uppercase py-4 rounded-xl transition-all hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
+        {#if isSavingIndices}
+          <span class="animate-pulse">Enregistrement en cours...</span>
+        {:else if indicesMessage}
+          ✅ Indices Enregistrés !
+        {:else}
+          Enregistrer les indices
+        {/if}
+      </button>
+      {#if indicesError}<p class="mt-4 text-rose-400 text-xs font-bold text-center">{indicesError}</p>{/if}
     </div>
 
     <div class="w-full p-6 md:p-8 bg-slate-900/80 backdrop-blur-md border border-yellow-500/30 rounded-3xl shadow-xl animate-fade-in">

@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.6.2",
-	"changelog": " Mise à jour v0.6.2 !\\n\\n- Ajout d'indice style pendu après les anecdotes pour le mode classique et anecdote",
+	"version": "0.6.3",
+	"changelog": " Mise à jour v0.6.3 !\\n\\n- Retour visuel quand il y a un enregistrement sur le profil",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
