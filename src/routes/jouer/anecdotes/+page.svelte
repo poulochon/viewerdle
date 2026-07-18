@@ -430,7 +430,7 @@
 
           {#if revealedLettersCount > 0}
             <div class="text-xl md:text-2xl font-mono font-black tracking-widest text-amber-300 bg-slate-950 px-6 py-4 rounded-xl border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              {targetViewer.pseudo.split('').map((char: string, i: number) => i < revealedLettersCount ? char : '_').join(' ')}
+              {targetViewer.pseudo.substring(0, revealedLettersCount)}...
             </div>
           {/if}
 

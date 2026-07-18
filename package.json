@@ -1,8 +1,8 @@
 {
 	"name": "viewerdle",
 	"private": true,
-	"version": "0.6.3",
-	"changelog": " Mise à jour v0.6.3 !\\n\\n- Retour visuel quand il y a un enregistrement sur le profil",
+	"version": "0.6.4",
+	"changelog": " Mise à jour v0.6.4 !\\n\\n- Changement du systeme de révélation de lettres",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
